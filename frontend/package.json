@@ -1,7 +1,7 @@
 {
   "name": "factored-ai-the-code-of-duty-frontend",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,6 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "4.3.4",
     "vite": "4.5.14"
   }
 }

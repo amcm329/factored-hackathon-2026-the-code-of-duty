@@ -1,0 +1,5 @@
+transformers>=4.46,<5
+accelerate>=1.1,<2
+bitsandbytes>=0.45,<1
+safetensors>=0.4,<1
+sentencepiece>=0.2,<1

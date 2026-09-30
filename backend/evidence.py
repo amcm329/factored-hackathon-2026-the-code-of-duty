@@ -1,8 +1,8 @@
 import os
 import uuid
 
-import boto3
 import fitz
+import boto3
 
 from backend.privacy import sanitize_text
 

@@ -5,6 +5,7 @@ from openai import OpenAI
 from backend.privacy import sanitize_text
 from backend.secrets import get_openai_api_key
 
+
 model_id = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
 client = OpenAI(

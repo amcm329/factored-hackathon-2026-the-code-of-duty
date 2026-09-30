@@ -15,14 +15,14 @@ model_name = os.getenv(
 index_path = Path(
     os.getenv(
         "FAISS_INDEX_PATH",
-        "/opt/factored-ai/data/complaints.faiss",
+        "/opt/factored-ai/retrieval_assets/complaints.faiss",
     )
 )
 
 mapping_path = Path(
     os.getenv(
         "FAISS_MAPPING_PATH",
-        "/opt/factored-ai/data/complaint_ids.json",
+        "/opt/factored-ai/retrieval_assets/complaint_ids.json",
     )
 )
 

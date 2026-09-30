@@ -24,6 +24,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import './styles.css'
+import { process_evidence, request_evidence_upload, send_chat, upload_evidence_pdf } from '../api'
 
 const DEMO_USER = {
   username: 'CUST_1042',
@@ -413,13 +414,15 @@ function TransactionDetails({ t, authenticated, disputeValidated, onLogin }) {
   )
 }
 
-function Chat({ t, authenticated, disputeValidated, onRequireLogin, justAuthenticated, onAuthMessageShown, onDisputeValidated }) {
+function Chat({ t, language, authenticated, disputeValidated, onRequireLogin, justAuthenticated, onAuthMessageShown, onDisputeValidated }) {
   const initialMessages = useMemo(() => ([
     { from: 'bot', text: t.intro, time: '10:24 AM' },
   ]), [t])
   const [messages, setMessages] = useState(initialMessages)
   const [input, setInput] = useState('')
   const [showTransaction, setShowTransaction] = useState(false)
+  const [evidence_ids, setEvidenceIds] = useState([])
+  const [isUploadingEvidence, setIsUploadingEvidence] = useState(false)
   const composerRef = React.useRef(null)
   const messagesRef = React.useRef(null)
 
@@ -482,11 +485,42 @@ function Chat({ t, authenticated, disputeValidated, onRequireLogin, justAuthenti
     }
   }
 
-  function submit(event) {
+  async function handleEvidenceFile(file) {
+    if (!file) {
+      return
+    }
+
+    if (file.type !== 'application/pdf') {
+      throw new Error('Only PDF evidence is allowed')
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      throw new Error('PDF must be 10 MB or smaller')
+    }
+
+    setIsUploadingEvidence(true)
+
+    try {
+      const upload = await request_evidence_upload(file)
+
+      await upload_evidence_pdf(file, upload)
+      await process_evidence(upload.evidence_id, language)
+
+      setEvidenceIds((current) => [...current, upload.evidence_id])
+    } finally {
+      setIsUploadingEvidence(false)
+    }
+  }
+
+  async function submit(event) {
     event.preventDefault()
     const value = input.trim()
     if (!value) return
 
+    const history = messages.map((message) => ({
+      role: message.from === 'user' ? 'user' : 'assistant',
+      content: message.text,
+    }))
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     setMessages((items) => [...items, { from: 'user', text: value, time }])
     setInput('')
@@ -497,26 +531,14 @@ function Chat({ t, authenticated, disputeValidated, onRequireLogin, justAuthenti
       }
     })
 
-    window.setTimeout(() => {
-      if (!authenticated && looksPersonal(value)) {
-        addBot(t.authNeeded)
-        onRequireLogin()
-        return
-      }
+    if (!authenticated && looksPersonal(value)) {
+      addBot(t.authNeeded)
+      onRequireLogin()
+      return
+    }
 
-      const lowered = value.toLowerCase()
-      if (!authenticated) {
-        addBot(t.genericHelp)
-      } else if (lowered.includes('status') || lowered.includes('estado')) {
-        addBot(t.hardcodedStatus)
-      } else if (lowered.includes('detail') || lowered.includes('detalle') || lowered.includes('detalhe')) {
-        addBot(t.hardcodedMore)
-      } else if (lowered.includes('open') || lowered.includes('abrir') || lowered.includes('dispute') || lowered.includes('disputa') || lowered.includes('contest')) {
-        addBot(t.hardcodedOpen)
-      } else {
-        addBot(t.hardcodedFallback)
-      }
-    }, 250)
+    const response = await send_chat(value, language, history, evidence_ids)
+    addBot(response)
   }
 
   return (
@@ -544,7 +566,24 @@ function Chat({ t, authenticated, disputeValidated, onRequireLogin, justAuthenti
       </div>
 
       <form className="composer" onSubmit={submit}>
-        <button type="button" className="attach-button" aria-label="Attach file"><Paperclip size={26} /></button>
+        <label className="attach-button" aria-label="Attach evidence">
+          <Paperclip size={26} />
+          <input
+            type="file"
+            accept="application/pdf"
+            hidden
+            disabled={isUploadingEvidence}
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+
+              if (file) {
+                handleEvidenceFile(file)
+              }
+
+              event.target.value = ''
+            }}
+          />
+        </label>
         <textarea
           ref={composerRef}
           value={input}
@@ -636,6 +675,7 @@ function App() {
             <Chat
               key={language}
               t={t}
+              language={language}
               authenticated={authenticated}
               disputeValidated={disputeValidated}
               onRequireLogin={() => openLogin(true)}

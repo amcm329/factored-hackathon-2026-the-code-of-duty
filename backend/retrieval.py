@@ -32,7 +32,11 @@ _complaint_ids = None
 
 
 def _load_retrieval_assets():
-    """Load E5, FAISS and the complaint ID mapping only when needed."""
+    """Load E5, FAISS, and the complaint ID mapping when first needed.
+
+    Returns:
+        None
+    """
 
     global _model, _index, _complaint_ids
 
@@ -46,9 +50,23 @@ def _load_retrieval_assets():
         with mapping_path.open("r", encoding="utf-8") as file:
             _complaint_ids = json.load(file)
 
+    if _index is not None and _complaint_ids is not None:
+        if _index.ntotal != len(_complaint_ids):
+            raise RuntimeError(
+                "FAISS index and complaint ID mapping contain different row counts."
+            )
+
 
 def search_similar_cases(text, k=5):
-    """Return similar complaint IDs for sanitized evidence/message text."""
+    """Return similar complaint IDs for sanitized complaint text.
+
+    Parameters:
+        text: Sanitized current complaint or evidence text.
+        k: Maximum number of nearest complaints to return.
+
+    Returns:
+        list: Complaint IDs and similarity scores from the internal FAISS index.
+    """
 
     _load_retrieval_assets()
 
@@ -61,9 +79,14 @@ def search_similar_cases(text, k=5):
         convert_to_numpy=True,
     ).astype(np.float32)
 
+    result_count = min(
+        k,
+        _index.ntotal,
+    )
+
     scores, indexes = _index.search(
         vector,
-        k,
+        result_count,
     )
 
     matches = []

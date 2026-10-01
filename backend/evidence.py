@@ -19,7 +19,11 @@ s3 = boto3.client(
 
 
 def create_pdf_upload():
-    """Create a short-lived presigned POST for one private PDF upload."""
+    """Create a short-lived presigned POST for one private PDF upload.
+
+    Returns:
+        dict: Evidence ID, S3 upload URL, and required form fields.
+    """
 
     evidence_id = str(uuid.uuid4())
     object_key = f"evidence/raw/{evidence_id}.pdf"
@@ -45,15 +49,21 @@ def create_pdf_upload():
 
 
 def _extract_pdf_text(pdf_bytes):
-    """Extract selectable text from a PDF."""
+    """Extract selectable text from a PDF.
+
+    Parameters:
+        pdf_bytes: Raw PDF bytes read from the private S3 object.
+
+    Returns:
+        str: Extracted text limited to the configured character maximum.
+    """
 
     document = fitz.open(
         stream=pdf_bytes,
         filetype="pdf",
     )
 
-    text = "
-".join(
+    text = "\n".join(
         page.get_text("text")
         for page in document
     ).strip()
@@ -67,7 +77,15 @@ def _extract_pdf_text(pdf_bytes):
 
 
 def process_pdf_evidence(evidence_id, language="en"):
-    """Read a private PDF, extract text, sanitize it and store safe text."""
+    """Read a private PDF, sanitize its text, and store only safe text.
+
+    Parameters:
+        evidence_id: Generated evidence identifier used in the private S3 key.
+        language: Presidio language code: en, es, or pt.
+
+    Returns:
+        dict: Evidence ID, processing status, and sanitized character count.
+    """
 
     raw_key = f"evidence/raw/{evidence_id}.pdf"
     processed_key = f"evidence/processed/{evidence_id}.txt"
@@ -105,7 +123,14 @@ def process_pdf_evidence(evidence_id, language="en"):
 
 
 def get_sanitized_evidence(evidence_id):
-    """Read previously sanitized evidence text from the private S3 bucket."""
+    """Read sanitized evidence text from the private S3 bucket.
+
+    Parameters:
+        evidence_id: Generated evidence identifier.
+
+    Returns:
+        str: Previously sanitized evidence text.
+    """
 
     processed_key = f"evidence/processed/{evidence_id}.txt"
 
@@ -113,5 +138,3 @@ def get_sanitized_evidence(evidence_id):
         Bucket=evidence_bucket,
         Key=processed_key,
     )
-
-    return response["Body"].read().decode("utf-8")

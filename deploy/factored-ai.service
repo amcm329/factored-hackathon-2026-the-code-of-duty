@@ -10,10 +10,11 @@ WorkingDirectory=/opt/factored-ai
 Environment=AWS_REGION=us-east-1
 Environment=OPENAI_SECRET_NAME=factored/openai/api-key
 Environment=OPENAI_MODEL=gpt-5.6-luna
-Environment=EVIDENCE_BUCKET=YOUR-EVIDENCE-BUCKET-NAME
+Environment=EVIDENCE_BUCKET=factored-ai-evidence-the-code-of-duty-evidence
 Environment=ORGANIZER_S3_SECRET_NAME=factored/organizer-s3/read-only
 Environment=DATABASE_SECRET_NAME=factored/database/url
 Environment=E5_MODEL=intfloat/multilingual-e5-base
+Environment=RETRIEVAL_ASSET_DIR=/opt/factored-ai/retrieval_assets
 Environment=FAISS_INDEX_PATH=/opt/factored-ai/retrieval_assets/complaints.faiss
 Environment=FAISS_MAPPING_PATH=/opt/factored-ai/retrieval_assets/complaint_ids.json
 Environment=PYTHONUNBUFFERED=1

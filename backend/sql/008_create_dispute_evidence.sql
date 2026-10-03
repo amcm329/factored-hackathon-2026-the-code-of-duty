@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS dispute_evidence (
     evidence_id UUID PRIMARY KEY,
+    customer_id VARCHAR(20) NOT NULL,
     dispute_id UUID NULL,
     s3_key TEXT NOT NULL,
     content_type VARCHAR(100) NOT NULL,
@@ -7,6 +8,9 @@ CREATE TABLE IF NOT EXISTS dispute_evidence (
     processing_status VARCHAR(30) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_dispute_evidence_customer_id
+    ON dispute_evidence (customer_id);
 
 CREATE INDEX IF NOT EXISTS idx_dispute_evidence_dispute_id
     ON dispute_evidence (dispute_id);

@@ -1,15 +1,12 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-  Bell,
   Bot,
   CalendarDays,
   ChevronDown,
-  Clock3,
   CreditCard,
   FileText,
   Globe2,
-  Landmark,
   LockKeyhole,
   LogIn,
   LogOut,
@@ -17,79 +14,50 @@ import {
   MessageCircle,
   Paperclip,
   Send,
-  Settings,
   ShoppingBag,
   UserRound,
   WalletCards,
-  Wrench,
 } from 'lucide-react'
 import './styles.css'
-import { process_evidence, request_evidence_upload, send_chat, upload_evidence_pdf } from '../api'
+import {
+  create_dispute,
+  get_welcome_message,
+  list_transactions,
+  process_evidence,
+  request_evidence_upload,
+  send_chat,
+  upload_evidence_pdf,
+} from '../api'
+import {
+  get_current_username,
+  has_auth_session,
+  sign_in,
+  sign_out,
+} from '../auth'
 
-const DEMO_USER = {
-  username: 'CUST_1042',
-  password: 'demo123',
-  initials: 'JD',
-  customerId: 'CUST_1042',
-  country: 'Mexico',
-}
-
-const SESSION_KEYS = {
-  authenticated: 'factored_demo_authenticated',
-  disputeValidated: 'factored_demo_dispute_validated',
-  language: 'factored_demo_language',
-}
-
-function readSessionBoolean(key) {
-  return window.sessionStorage.getItem(key) === 'true'
-}
-
-const transaction = {
-  merchant: 'Urban Outfitters',
-  category: 'Clothing & Apparel',
-  amount: '$320.00',
-  date: 'May 14, 2024',
-  time: '2:37 PM (GMT-6)',
-  location: 'México City, MX',
-  channel: 'In-store purchase',
-  card: 'Visa  •••• 4421',
-}
+const language_storage_key = 'factored_language'
 
 const copy = {
   en: {
-    language: 'English',
     title: 'AI Dispute Assistant',
     subtitle: 'Help with disputed or unrecognized transactions',
     disputes: 'Disputes',
-    transactions: 'Transactions',
-    caseStatus: 'Case Status',
-    settings: 'Settings',
-    wip: 'Work in Progress',
     guest: 'Guest mode',
     guestId: 'Not signed in',
     signedIn: 'Signed in as',
     signIn: 'Sign in',
     logout: 'Sign out',
-    intro: 'Hi. I can help with transaction disputes. You can ask general questions without signing in.',
-    genericHelp: 'For a transaction dispute, I can explain the process without accessing your personal banking data.',
-    authNeeded: 'I need to verify your identity before I can access your transactions or create a dispute.',
     loginTitle: 'Secure sign in required',
     loginSubtitle: 'Sign in to access your personal banking information and continue this request.',
     username: 'Customer ID',
     password: 'Password',
-    loginHint: 'Demo credentials',
-    invalid: 'Invalid demo credentials.',
+    invalid: 'Invalid credentials.',
     cancel: 'Cancel',
     continueSignIn: 'Sign in and continue',
-    authenticated: 'Identity verified. I am validating the transaction against your account now.',
-    validated: 'Dispute transaction validated. The transaction belongs to your account and matches the information provided.',
     validatedBadge: 'Validated transaction',
     validationPendingTitle: 'Transaction details not available yet',
-    validationPendingText: 'You are authenticated, but the assistant must validate the disputed transaction before personal card and transaction details are displayed.',
-    userExample: 'I don’t recognize the $320 purchase from yesterday.',
-    botMsg: 'I found a matching transaction. Would you like to open a dispute case for this purchase?',
+    validationPendingText: 'Sign in and select a transaction before opening a dispute.',
     openDispute: 'Open dispute',
-    moreDetails: 'Need more details',
     placeholder: 'Ask about a transaction dispute...',
     details: 'Transaction Details',
     merchant: 'Merchant',
@@ -97,50 +65,29 @@ const copy = {
     date: 'Date',
     location: 'Location',
     card: 'Card',
-    hardcodedOpen: 'Demo mode: your dispute was registered successfully. Case ID: DSP-2026-001.',
-    hardcodedMore: 'This demo uses hard-coded data. The transaction is an in-store purchase in México City on May 14, 2024.',
-    hardcodedFallback: 'Demo mode: I can explain dispute steps or help with the sample transaction.',
-    hardcodedStatus: 'Case DSP-2026-001 is currently OPEN in this local demo.',
-    wipTitle: 'Work in Progress',
-    wipText: 'This section is part of the planned banking experience and is not implemented in this frontend demo yet.',
-    backToDisputes: 'Back to disputes',
     noTransactionTitle: 'Personal transaction details are hidden',
-    noTransactionText: 'Sign in only when you need the assistant to access your personal banking information.',
+    noTransactionText: 'Sign in when you need access to your personal banking information.',
   },
   es: {
-    language: 'Español',
     title: 'Asistente de Disputas con IA',
     subtitle: 'Ayuda con transacciones disputadas o no reconocidas',
     disputes: 'Disputas',
-    transactions: 'Transacciones',
-    caseStatus: 'Estado del caso',
-    settings: 'Configuración',
-    wip: 'En desarrollo',
     guest: 'Modo invitado',
     guestId: 'Sin iniciar sesión',
     signedIn: 'Sesión iniciada como',
     signIn: 'Iniciar sesión',
     logout: 'Cerrar sesión',
-    intro: 'Hola. Puedo ayudarte con disputas de transacciones. Puedes hacer preguntas generales sin iniciar sesión.',
-    genericHelp: 'Para una disputa de transacción, puedo explicar el proceso sin acceder a tus datos bancarios personales.',
-    authNeeded: 'Necesito verificar tu identidad antes de acceder a tus transacciones o crear una disputa.',
     loginTitle: 'Se requiere inicio de sesión seguro',
     loginSubtitle: 'Inicia sesión para acceder a tu información bancaria personal y continuar con esta solicitud.',
     username: 'ID de cliente',
     password: 'Contraseña',
-    loginHint: 'Credenciales demo',
-    invalid: 'Credenciales demo inválidas.',
+    invalid: 'Credenciales inválidas.',
     cancel: 'Cancelar',
     continueSignIn: 'Iniciar sesión y continuar',
-    authenticated: 'Identidad verificada. Estoy validando la transacción contra tu cuenta.',
-    validated: 'Transacción de disputa validada. La transacción pertenece a tu cuenta y coincide con la información proporcionada.',
     validatedBadge: 'Transacción validada',
     validationPendingTitle: 'Los detalles de la transacción aún no están disponibles',
-    validationPendingText: 'Tu identidad ya fue verificada, pero el asistente debe validar la transacción disputada antes de mostrar datos personales de la tarjeta y la transacción.',
-    userExample: 'No reconozco la compra de $320 de ayer.',
-    botMsg: 'Encontré una transacción que coincide. ¿Quieres abrir un caso de disputa para esta compra?',
+    validationPendingText: 'Inicia sesión y selecciona una transacción antes de abrir una disputa.',
     openDispute: 'Abrir disputa',
-    moreDetails: 'Necesito más detalles',
     placeholder: 'Pregunta sobre una disputa de transacción...',
     details: 'Detalles de la transacción',
     merchant: 'Comercio',
@@ -148,50 +95,29 @@ const copy = {
     date: 'Fecha',
     location: 'Ubicación',
     card: 'Tarjeta',
-    hardcodedOpen: 'Modo demo: tu disputa fue registrada correctamente. Caso: DSP-2026-001.',
-    hardcodedMore: 'Esta demo usa datos fijos. La compra fue presencial en Ciudad de México el 14 de mayo de 2024.',
-    hardcodedFallback: 'Modo demo: puedo explicar el proceso de disputa o ayudarte con la transacción de ejemplo.',
-    hardcodedStatus: 'El caso DSP-2026-001 está ABIERTO en esta demo local.',
-    wipTitle: 'En desarrollo',
-    wipText: 'Esta sección forma parte de la experiencia bancaria planeada y todavía no está implementada en esta demo del frontend.',
-    backToDisputes: 'Volver a disputas',
     noTransactionTitle: 'Los detalles personales de la transacción están ocultos',
-    noTransactionText: 'Inicia sesión únicamente cuando necesites que el asistente acceda a tu información bancaria personal.',
+    noTransactionText: 'Inicia sesión cuando necesites acceder a tu información bancaria personal.',
   },
   pt: {
-    language: 'Português',
     title: 'Assistente de Contestação com IA',
     subtitle: 'Ajuda com transações contestadas ou não reconhecidas',
     disputes: 'Contestações',
-    transactions: 'Transações',
-    caseStatus: 'Status do caso',
-    settings: 'Configurações',
-    wip: 'Em desenvolvimento',
     guest: 'Modo convidado',
     guestId: 'Não conectado',
     signedIn: 'Conectado como',
     signIn: 'Entrar',
     logout: 'Sair',
-    intro: 'Olá. Posso ajudar com contestações de transações. Você pode fazer perguntas gerais sem entrar.',
-    genericHelp: 'Para uma contestação, posso explicar o processo sem acessar seus dados bancários pessoais.',
-    authNeeded: 'Preciso verificar sua identidade antes de acessar suas transações ou criar uma contestação.',
     loginTitle: 'Login seguro necessário',
     loginSubtitle: 'Entre para acessar suas informações bancárias pessoais e continuar esta solicitação.',
     username: 'ID do cliente',
     password: 'Senha',
-    loginHint: 'Credenciais demo',
-    invalid: 'Credenciais demo inválidas.',
+    invalid: 'Credenciais inválidas.',
     cancel: 'Cancelar',
     continueSignIn: 'Entrar e continuar',
-    authenticated: 'Identidade verificada. Estou validando a transação na sua conta agora.',
-    validated: 'Transação da contestação validada. A transação pertence à sua conta e corresponde às informações fornecidas.',
     validatedBadge: 'Transação validada',
     validationPendingTitle: 'Os detalhes da transação ainda não estão disponíveis',
-    validationPendingText: 'Sua identidade foi verificada, mas o assistente precisa validar a transação contestada antes de mostrar dados pessoais do cartão e da transação.',
-    userExample: 'Não reconheço a compra de $320 de ontem.',
-    botMsg: 'Encontrei uma transação correspondente. Deseja abrir um caso de contestação para esta compra?',
+    validationPendingText: 'Entre e selecione uma transação antes de abrir uma contestação.',
     openDispute: 'Abrir contestação',
-    moreDetails: 'Preciso de mais detalhes',
     placeholder: 'Pergunte sobre uma contestação de transação...',
     details: 'Detalhes da transação',
     merchant: 'Estabelecimento',
@@ -199,15 +125,8 @@ const copy = {
     date: 'Data',
     location: 'Localização',
     card: 'Cartão',
-    hardcodedOpen: 'Modo demo: sua contestação foi registrada com sucesso. Caso: DSP-2026-001.',
-    hardcodedMore: 'Esta demo usa dados fixos. A compra foi presencial na Cidade do México em 14 de maio de 2024.',
-    hardcodedFallback: 'Modo demo: posso explicar o processo de contestação ou ajudar com a transação de exemplo.',
-    hardcodedStatus: 'O caso DSP-2026-001 está ABERTO nesta demo local.',
-    wipTitle: 'Em desenvolvimento',
-    wipText: 'Esta seção faz parte da experiência bancária planejada e ainda não foi implementada nesta demo do frontend.',
-    backToDisputes: 'Voltar para contestações',
     noTransactionTitle: 'Os detalhes pessoais da transação estão ocultos',
-    noTransactionText: 'Entre somente quando precisar que o assistente acesse suas informações bancárias pessoais.',
+    noTransactionText: 'Entre quando precisar acessar suas informações bancárias pessoais.',
   },
 }
 
@@ -227,7 +146,7 @@ function LanguageSelect({ language, onChange }) {
   return (
     <div className="language-select-wrap">
       <Globe2 size={17} />
-      <select value={language} onChange={(e) => onChange(e.target.value)} aria-label="Language">
+      <select value={language} onChange={(event) => onChange(event.target.value)} aria-label="Language">
         <option value="en">EN — English</option>
         <option value="es">ES — Español</option>
         <option value="pt">PT — Português</option>
@@ -238,18 +157,18 @@ function LanguageSelect({ language, onChange }) {
 }
 
 function LoginModal({ t, onClose, onLogin }) {
-  const [username, setUsername] = useState(DEMO_USER.username)
-  const [password, setPassword] = useState(DEMO_USER.password)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault()
-    if (username === DEMO_USER.username && password === DEMO_USER.password) {
-      setError('')
-      onLogin()
-      return
+
+    try {
+      await onLogin(username, password)
+    } catch {
+      setError(t.invalid)
     }
-    setError(t.invalid)
   }
 
   return (
@@ -258,15 +177,14 @@ function LoginModal({ t, onClose, onLogin }) {
         <div className="login-icon"><LockKeyhole size={30} /></div>
         <h2 id="login-title">{t.loginTitle}</h2>
         <p>{t.loginSubtitle}</p>
-
         <form onSubmit={submit} className="login-form">
           <label>
             {t.username}
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
           </label>
           <label>
             {t.password}
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
           </label>
           {error && <div className="login-error">{error}</div>}
           <div className="login-actions">
@@ -274,62 +192,40 @@ function LoginModal({ t, onClose, onLogin }) {
             <button type="submit" className="primary"><LogIn size={19} />{t.continueSignIn}</button>
           </div>
         </form>
-
-        <div className="login-hint">
-          <strong>{t.loginHint}</strong>
-          <span>{DEMO_USER.username} / {DEMO_USER.password}</span>
-        </div>
       </div>
     </div>
   )
 }
 
-function Sidebar({ t, activeSection, onSection }) {
-  const items = [
-    { id: 'disputes', label: t.disputes, icon: <MessageCircle size={25} /> },
-    { id: 'transactions', label: t.transactions, icon: <CreditCard size={25} /> },
-    { id: 'case-status', label: t.caseStatus, icon: <Clock3 size={25} /> },
-  ]
-
+function Sidebar({ t }) {
   return (
     <aside className="sidebar">
       <Brand />
       <nav className="nav-list">
-        {items.map((item) => (
-          <button key={item.id} className={`nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => onSection(item.id)}>
-            {item.icon}{item.label}
-          </button>
-        ))}
+        <button className="nav-item active" type="button">
+          <MessageCircle size={25} />{t.disputes}
+        </button>
       </nav>
-      <div className="sidebar-divider" />
-      <button className={`settings-item ${activeSection === 'settings' ? 'active-setting' : ''}`} onClick={() => onSection('settings')}>
-        <Settings size={24} />
-        <div><span>{t.settings}</span><small>{t.wip}</small></div>
-      </button>
     </aside>
   )
 }
 
-function Header({ t, language, onLanguage, authenticated, onLogin, onLogout }) {
+function Header({ t, language, onLanguage, authenticated, customerId, onLogin, onLogout }) {
   return (
     <header className="topbar">
       <div className="assistant-heading">
         <div className="assistant-icon"><Bot size={34} /></div>
-        <div>
-          <h1>{t.title}</h1>
-          <p>{t.subtitle}</p>
-        </div>
+        <div><h1>{t.title}</h1><p>{t.subtitle}</p></div>
       </div>
       <div className="topbar-actions">
         <LanguageSelect language={language} onChange={onLanguage} />
-        <button className="icon-button" aria-label="Notifications"><Bell size={23} /></button>
         <div className="topbar-separator" />
         <div className={`user-avatar ${authenticated ? '' : 'guest-avatar'}`}>
-          {authenticated ? DEMO_USER.initials : <UserRound size={22} />}
+          {authenticated ? (customerId || 'CU').slice(0, 2).toUpperCase() : <UserRound size={22} />}
         </div>
         <div className="signed-in">
           <span>{authenticated ? t.signedIn : t.guest}</span>
-          <strong>{authenticated ? DEMO_USER.customerId : t.guestId}</strong>
+          <strong>{authenticated ? customerId : t.guestId}</strong>
         </div>
         {authenticated ? (
           <button className="logout-button" onClick={onLogout} title={t.logout}><LogOut size={20} /></button>
@@ -341,20 +237,35 @@ function Header({ t, language, onLanguage, authenticated, onLogin, onLogout }) {
   )
 }
 
-function TransactionCard({ t }) {
+function formatTransaction(raw) {
+  if (!raw) return null
+
+  const date = raw.transaction_date ? new Date(raw.transaction_date) : null
+
+  return {
+    transaction_id: raw.transaction_id,
+    merchant: raw.merchant_name || raw.transaction_category || raw.transaction_type || '',
+    category: raw.merchant_category || raw.transaction_category || '',
+    amount: `${raw.currency || ''} ${raw.amount ?? ''}`.trim(),
+    date: date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : '',
+    time: date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+    location: [raw.transaction_city, raw.transaction_country].filter(Boolean).join(', '),
+    channel: raw.channel || '',
+    card: raw.product_id || '',
+  }
+}
+
+function TransactionCard({ transaction }) {
+  if (!transaction) return null
+
   return (
     <div className="transaction-card">
       <div className="transaction-card-left">
         <div className="merchant-icon"><ShoppingBag size={27} /></div>
-        <div>
-          <strong>{transaction.merchant}</strong>
-          <span>{transaction.category}</span>
-        </div>
+        <div><strong>{transaction.merchant}</strong><span>{transaction.category}</span></div>
       </div>
       <div className="transaction-card-right">
-        <strong>{transaction.amount}</strong>
-        <span>{transaction.date}</span>
-        <span>{transaction.time}</span>
+        <strong>{transaction.amount}</strong><span>{transaction.date}</span><span>{transaction.time}</span>
       </div>
     </div>
   )
@@ -364,15 +275,12 @@ function DetailRow({ icon, label, children }) {
   return (
     <div className="detail-row">
       <div className="detail-icon">{icon}</div>
-      <div className="detail-copy">
-        <span>{label}</span>
-        {children}
-      </div>
+      <div className="detail-copy"><span>{label}</span>{children}</div>
     </div>
   )
 }
 
-function TransactionDetails({ t, authenticated, disputeValidated, onLogin }) {
+function TransactionDetails({ t, authenticated, transaction, onLogin }) {
   if (!authenticated) {
     return (
       <aside className="details-panel locked-details">
@@ -384,7 +292,7 @@ function TransactionDetails({ t, authenticated, disputeValidated, onLogin }) {
     )
   }
 
-  if (!disputeValidated) {
+  if (!transaction) {
     return (
       <aside className="details-panel locked-details">
         <div className="locked-details-icon"><LockKeyhole size={31} /></div>
@@ -400,11 +308,7 @@ function TransactionDetails({ t, authenticated, disputeValidated, onLogin }) {
       <h2>{t.details}</h2>
       <div className="merchant-summary">
         <div className="merchant-icon large"><ShoppingBag size={30} /></div>
-        <div>
-          <span>{t.merchant}</span>
-          <strong>{transaction.merchant}</strong>
-          <small>{transaction.category}</small>
-        </div>
+        <div><span>{t.merchant}</span><strong>{transaction.merchant}</strong><small>{transaction.category}</small></div>
       </div>
       <DetailRow icon={<WalletCards size={23} />} label={t.amount}><strong>{transaction.amount}</strong></DetailRow>
       <DetailRow icon={<CalendarDays size={23} />} label={t.date}><strong>{transaction.date}</strong><small>{transaction.time}</small></DetailRow>
@@ -414,58 +318,62 @@ function TransactionDetails({ t, authenticated, disputeValidated, onLogin }) {
   )
 }
 
-function Chat({ t, language, authenticated, disputeValidated, onRequireLogin, justAuthenticated, onAuthMessageShown, onDisputeValidated }) {
-  const initialMessages = useMemo(() => ([
-    { from: 'bot', text: t.intro, time: '10:24 AM' },
-  ]), [t])
-  const [messages, setMessages] = useState(initialMessages)
+function Chat({ t, language, authenticated, transaction, onTransaction, onRequireLogin }) {
+  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [showTransaction, setShowTransaction] = useState(false)
   const [evidence_ids, setEvidenceIds] = useState([])
+  const [interactionId] = useState(() => crypto.randomUUID())
   const [isUploadingEvidence, setIsUploadingEvidence] = useState(false)
+  const [interactionFinished, setInteractionFinished] = useState(false)
   const composerRef = React.useRef(null)
   const messagesRef = React.useRef(null)
 
-  function addBot(text, transactionResult = false) {
+  function addBot(text) {
+    if (!text) return
+
     setMessages((items) => [...items, {
       from: 'bot',
       text,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      transaction: transactionResult,
     }])
   }
 
   React.useEffect(() => {
-    if (justAuthenticated) {
-      addBot(t.authenticated)
-      onAuthMessageShown()
-      window.setTimeout(() => {
-        addBot(t.validated, true)
-        setShowTransaction(true)
-        onDisputeValidated()
-      }, 650)
-    }
-  }, [justAuthenticated])
+    get_welcome_message(language)
+      .then((result) => {
+        setMessages([{
+          from: 'bot',
+          text: result.message,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }])
+      })
+      .catch(() => setMessages([]))
+  }, [language])
 
+  React.useEffect(() => {
+    if (!authenticated) {
+      onTransaction(null)
+      return
+    }
+
+    list_transactions()
+      .then((result) => {
+        onTransaction(formatTransaction(result.transactions?.[0]))
+      })
+      .catch(() => onTransaction(null))
+  }, [authenticated])
 
   React.useEffect(() => {
     const container = messagesRef.current
-    if (!container) return
-    container.scrollTop = container.scrollHeight
-  }, [messages, showTransaction, disputeValidated])
 
-  function looksPersonal(value) {
-    const lowered = value.toLowerCase()
-    const personalSignals = [
-      'my ', 'mine', 'transaction', 'purchase', 'card', '$320', 'yesterday',
-      'mi ', 'mía', 'transacción', 'compra', 'tarjeta', 'ayer',
-      'minha', 'meu ', 'transação', 'compra', 'cartão', 'ontem',
-    ]
-    return personalSignals.some((signal) => lowered.includes(signal))
-  }
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
+  }, [messages])
 
   function resizeComposer() {
     const textarea = composerRef.current
+
     if (!textarea) return
 
     textarea.style.height = '44px'
@@ -473,20 +381,11 @@ function Chat({ t, language, authenticated, disputeValidated, onRequireLogin, ju
     textarea.style.overflowY = textarea.scrollHeight > 140 ? 'auto' : 'hidden'
   }
 
-  function handleInput(event) {
-    setInput(event.target.value)
-    window.requestAnimationFrame(resizeComposer)
-  }
-
-  function handleComposerKeyDown(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      event.currentTarget.form.requestSubmit()
-    }
-  }
-
   async function handleEvidenceFile(file) {
-    if (!file) {
+    if (!file || interactionFinished) return
+
+    if (!authenticated) {
+      onRequireLogin()
       return
     }
 
@@ -502,10 +401,8 @@ function Chat({ t, language, authenticated, disputeValidated, onRequireLogin, ju
 
     try {
       const upload = await request_evidence_upload(file)
-
       await upload_evidence_pdf(file, upload)
       await process_evidence(upload.evidence_id, language)
-
       setEvidenceIds((current) => [...current, upload.evidence_id])
     } finally {
       setIsUploadingEvidence(false)
@@ -514,31 +411,61 @@ function Chat({ t, language, authenticated, disputeValidated, onRequireLogin, ju
 
   async function submit(event) {
     event.preventDefault()
+
     const value = input.trim()
-    if (!value) return
+
+    if (!value || interactionFinished) return
 
     const history = messages.map((message) => ({
       role: message.from === 'user' ? 'user' : 'assistant',
       content: message.text,
     }))
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    setMessages((items) => [...items, { from: 'user', text: value, time }])
-    setInput('')
-    window.requestAnimationFrame(() => {
-      if (composerRef.current) {
-        composerRef.current.style.height = '44px'
-        composerRef.current.style.overflowY = 'hidden'
-      }
-    })
 
-    if (!authenticated && looksPersonal(value)) {
-      addBot(t.authNeeded)
+    setMessages((items) => [...items, {
+      from: 'user',
+      text: value,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }])
+    setInput('')
+
+    const result = await send_chat(
+      value,
+      language,
+      history,
+      evidence_ids,
+      interactionId,
+    )
+    addBot(result.response)
+  }
+
+  async function openDispute() {
+    if (!authenticated) {
       onRequireLogin()
       return
     }
 
-    const response = await send_chat(value, language, history, evidence_ids)
-    addBot(response)
+    if (!transaction) return
+
+    const lastUserMessage = [...messages].reverse().find((message) => message.from === 'user')
+
+    if (!lastUserMessage?.text) return
+
+    const result = await create_dispute({
+      transaction_id: transaction.transaction_id,
+      reason: lastUserMessage.text,
+      language,
+      interaction_id: interactionId,
+    })
+
+    if (result.response) {
+      addBot(result.response)
+    } else {
+      addBot(`${result.dispute.status}: ${result.dispute.dispute_id}`)
+    }
+
+    if (result.interaction_finished) {
+      setInteractionFinished(true)
+    }
   }
 
   return (
@@ -550,12 +477,11 @@ function Chat({ t, language, authenticated, disputeValidated, onRequireLogin, ju
             <div className="message-stack">
               <div className={`message-bubble ${message.from}`}>{message.text}</div>
               <span className="message-time">{message.time}</span>
-              {(message.transaction || (showTransaction && index === messages.length - 1 && message.from === 'bot')) && authenticated && disputeValidated && (
+              {message.from === 'bot' && transaction && authenticated && index === messages.length - 1 && !interactionFinished && (
                 <>
-                  <TransactionCard t={t} />
+                  <TransactionCard transaction={transaction} />
                   <div className="transaction-actions">
-                    <button className="primary" onClick={() => addBot(t.hardcodedOpen)}><FileText size={20} />{t.openDispute}</button>
-                    <button className="secondary" onClick={() => addBot(t.hardcodedMore)}>{t.moreDetails}</button>
+                    <button className="primary" onClick={openDispute}><FileText size={20} />{t.openDispute}</button>
                   </div>
                 </>
               )}
@@ -572,7 +498,7 @@ function Chat({ t, language, authenticated, disputeValidated, onRequireLogin, ju
             type="file"
             accept="application/pdf"
             hidden
-            disabled={isUploadingEvidence}
+            disabled={isUploadingEvidence || interactionFinished}
             onChange={(event) => {
               const file = event.target.files?.[0]
 
@@ -587,109 +513,85 @@ function Chat({ t, language, authenticated, disputeValidated, onRequireLogin, ju
         <textarea
           ref={composerRef}
           value={input}
-          onChange={handleInput}
-          onKeyDown={handleComposerKeyDown}
+          onChange={(event) => {
+            setInput(event.target.value)
+            window.requestAnimationFrame(resizeComposer)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              event.currentTarget.form.requestSubmit()
+            }
+          }}
           placeholder={t.placeholder}
           rows={1}
           aria-label={t.placeholder}
+          disabled={interactionFinished}
         />
-        <button type="submit" className="send-button" aria-label="Send"><Send size={22} /></button>
+        <button type="submit" className="send-button" aria-label="Send" disabled={interactionFinished}><Send size={22} /></button>
       </form>
     </section>
   )
 }
 
-function WorkInProgress({ t, onBack }) {
-  return (
-    <div className="wip-page">
-      <div className="wip-card">
-        <div className="wip-icon"><Wrench size={34} /></div>
-        <h2>{t.wipTitle}</h2>
-        <p>{t.wipText}</p>
-        <button className="primary" onClick={onBack}>{t.backToDisputes}</button>
-      </div>
-    </div>
-  )
-}
-
 function App() {
-  const [language, setLanguage] = useState(() => window.sessionStorage.getItem(SESSION_KEYS.language) || 'en')
-  const [authenticated, setAuthenticated] = useState(() => readSessionBoolean(SESSION_KEYS.authenticated))
+  const [language, setLanguage] = useState(() => window.sessionStorage.getItem(language_storage_key) || 'en')
+  const [authenticated, setAuthenticated] = useState(() => has_auth_session())
+  const [customerId, setCustomerId] = useState(() => get_current_username())
   const [showLogin, setShowLogin] = useState(false)
-  const [activeSection, setActiveSection] = useState('disputes')
-  const [justAuthenticated, setJustAuthenticated] = useState(false)
-  const [disputeValidated, setDisputeValidated] = useState(() => readSessionBoolean(SESSION_KEYS.disputeValidated))
-  const [loginForDispute, setLoginForDispute] = useState(false)
+  const [transaction, setTransaction] = useState(null)
   const t = copy[language]
 
   function changeLanguage(value) {
-    window.sessionStorage.setItem(SESSION_KEYS.language, value)
+    window.sessionStorage.setItem(language_storage_key, value)
     setLanguage(value)
   }
 
-  function login() {
-    window.sessionStorage.setItem(SESSION_KEYS.authenticated, 'true')
-    window.sessionStorage.setItem(SESSION_KEYS.disputeValidated, 'false')
+  async function login(username, password) {
+    await sign_in(username, password)
     setAuthenticated(true)
+    setCustomerId(get_current_username())
     setShowLogin(false)
-    setActiveSection('disputes')
-    setDisputeValidated(false)
-    setJustAuthenticated(loginForDispute)
-    setLoginForDispute(false)
   }
 
   function logout() {
-    window.sessionStorage.removeItem(SESSION_KEYS.authenticated)
-    window.sessionStorage.removeItem(SESSION_KEYS.disputeValidated)
+    sign_out()
     setAuthenticated(false)
-    setJustAuthenticated(false)
-    setDisputeValidated(false)
-    setLoginForDispute(false)
-  }
-
-  function validateDispute() {
-    window.sessionStorage.setItem(SESSION_KEYS.disputeValidated, 'true')
-    setDisputeValidated(true)
-  }
-
-  function openLogin(forDispute = false) {
-    setLoginForDispute(forDispute)
-    setShowLogin(true)
+    setCustomerId('')
+    setTransaction(null)
   }
 
   return (
     <div className="app-shell">
-      <Sidebar t={t} activeSection={activeSection} onSection={setActiveSection} />
+      <Sidebar t={t} />
       <main className="app-main">
         <Header
           t={t}
           language={language}
           onLanguage={changeLanguage}
           authenticated={authenticated}
-          onLogin={() => openLogin(false)}
+          customerId={customerId}
+          onLogin={() => setShowLogin(true)}
           onLogout={logout}
         />
-
-        {activeSection === 'disputes' ? (
-          <div className="content-grid">
-            <Chat
-              key={language}
-              t={t}
-              language={language}
-              authenticated={authenticated}
-              disputeValidated={disputeValidated}
-              onRequireLogin={() => openLogin(true)}
-              justAuthenticated={justAuthenticated}
-              onAuthMessageShown={() => setJustAuthenticated(false)}
-              onDisputeValidated={validateDispute}
-            />
-            <TransactionDetails t={t} authenticated={authenticated} disputeValidated={disputeValidated} onLogin={() => openLogin(false)} />
-          </div>
-        ) : (
-          <WorkInProgress t={t} onBack={() => setActiveSection('disputes')} />
-        )}
+        <div className="content-grid">
+          <Chat
+            key={`${language}-${authenticated}`}
+            t={t}
+            language={language}
+            authenticated={authenticated}
+            transaction={transaction}
+            onTransaction={setTransaction}
+            onRequireLogin={() => setShowLogin(true)}
+          />
+          <TransactionDetails
+            t={t}
+            authenticated={authenticated}
+            transaction={transaction}
+            onLogin={() => setShowLogin(true)}
+          />
+        </div>
       </main>
-
       {showLogin && <LoginModal t={t} onClose={() => setShowLogin(false)} onLogin={login} />}
     </div>
   )

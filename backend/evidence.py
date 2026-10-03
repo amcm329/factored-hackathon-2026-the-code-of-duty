@@ -1,9 +1,14 @@
 import os
 import uuid
 
-import fitz
 import boto3
+import fitz
 
+from backend.database import (
+    create_evidence_record,
+    get_evidence_record,
+    update_evidence_status,
+)
 from backend.privacy import sanitize_text
 
 
@@ -11,29 +16,36 @@ aws_region = os.getenv("AWS_REGION", "us-east-1")
 evidence_bucket = os.getenv("EVIDENCE_BUCKET", "")
 max_file_size = 10 * 1024 * 1024
 max_extracted_characters = 40000
-
 s3 = boto3.client(
     "s3",
     region_name=aws_region,
 )
 
 
-def create_pdf_upload():
-    """Create a short-lived presigned POST for one private PDF upload.
+def create_pdf_upload(customer_id, content_type, file_size_bytes):
+    """Create a customer-owned short-lived PDF upload form."""
 
-    Returns:
-        dict: Evidence ID, S3 upload URL, and required form fields.
-    """
+    if content_type != "application/pdf":
+        raise ValueError("Only PDF evidence is allowed")
+
+    if file_size_bytes < 1 or file_size_bytes > max_file_size:
+        raise ValueError("PDF must be between 1 byte and 10 MB")
 
     evidence_id = str(uuid.uuid4())
     object_key = f"evidence/raw/{evidence_id}.pdf"
 
+    create_evidence_record(
+        customer_id=customer_id,
+        evidence_id=evidence_id,
+        s3_key=object_key,
+        content_type=content_type,
+        file_size_bytes=file_size_bytes,
+    )
+
     upload = s3.generate_presigned_post(
         Bucket=evidence_bucket,
         Key=object_key,
-        Fields={
-            "Content-Type": "application/pdf",
-        },
+        Fields={"Content-Type": "application/pdf"},
         Conditions=[
             {"Content-Type": "application/pdf"},
             ["content-length-range", 1, max_file_size],
@@ -49,63 +61,50 @@ def create_pdf_upload():
 
 
 def _extract_pdf_text(pdf_bytes):
-    """Extract selectable text from a PDF.
-
-    Parameters:
-        pdf_bytes: Raw PDF bytes read from the private S3 object.
-
-    Returns:
-        str: Extracted text limited to the configured character maximum.
-    """
+    """Extract selectable text from a PDF."""
 
     document = fitz.open(
         stream=pdf_bytes,
         filetype="pdf",
     )
-
-    text = "\n".join(
+    extracted = "\n".join(
         page.get_text("text")
         for page in document
     ).strip()
+    document.close()
 
-    if not text:
-        raise ValueError(
-            "No selectable text found. A scanned PDF requires OCR/Textract."
-        )
+    if not extracted:
+        raise ValueError("No selectable text found")
 
-    return text[:max_extracted_characters]
+    return extracted[:max_extracted_characters]
 
 
-def process_pdf_evidence(evidence_id, language="en"):
-    """Read a private PDF, sanitize its text, and store only safe text.
+def process_pdf_evidence(customer_id, evidence_id, language="en"):
+    """Extract, sanitize, and store customer-owned evidence text."""
 
-    Parameters:
-        evidence_id: Generated evidence identifier used in the private S3 key.
-        language: Presidio language code: en, es, or pt.
+    record = get_evidence_record(
+        customer_id=customer_id,
+        evidence_id=evidence_id,
+    )
 
-    Returns:
-        dict: Evidence ID, processing status, and sanitized character count.
-    """
-
-    raw_key = f"evidence/raw/{evidence_id}.pdf"
-    processed_key = f"evidence/processed/{evidence_id}.txt"
+    if record is None:
+        raise LookupError("Evidence does not belong to the authenticated customer")
 
     response = s3.get_object(
         Bucket=evidence_bucket,
-        Key=raw_key,
+        Key=record["s3_key"],
     )
-
     file_size = response["ContentLength"]
 
     if file_size > max_file_size:
-        raise ValueError("PDF is larger than the 10 MB limit.")
+        raise ValueError("PDF is larger than the 10 MB limit")
 
-    pdf_bytes = response["Body"].read()
-    extracted_text = _extract_pdf_text(pdf_bytes)
+    extracted_text = _extract_pdf_text(response["Body"].read())
     safe_text = sanitize_text(
         extracted_text,
         language,
     )
+    processed_key = f"evidence/processed/{evidence_id}.txt"
 
     s3.put_object(
         Bucket=evidence_bucket,
@@ -115,6 +114,13 @@ def process_pdf_evidence(evidence_id, language="en"):
         ServerSideEncryption="AES256",
     )
 
+    update_evidence_status(
+        customer_id=customer_id,
+        evidence_id=evidence_id,
+        processing_status="processed",
+        file_size_bytes=file_size,
+    )
+
     return {
         "evidence_id": evidence_id,
         "status": "processed",
@@ -122,19 +128,22 @@ def process_pdf_evidence(evidence_id, language="en"):
     }
 
 
-def get_sanitized_evidence(evidence_id):
-    """Read sanitized evidence text from the private S3 bucket.
+def get_sanitized_evidence(customer_id, evidence_id):
+    """Read sanitized evidence after customer ownership validation."""
 
-    Parameters:
-        evidence_id: Generated evidence identifier.
+    record = get_evidence_record(
+        customer_id=customer_id,
+        evidence_id=evidence_id,
+    )
 
-    Returns:
-        str: Previously sanitized evidence text.
-    """
+    if record is None:
+        raise LookupError("Evidence does not belong to the authenticated customer")
 
-    processed_key = f"evidence/processed/{evidence_id}.txt"
+    if record["processing_status"] != "processed":
+        raise LookupError("Evidence has not been processed")
 
     response = s3.get_object(
         Bucket=evidence_bucket,
-        Key=processed_key,
+        Key=f"evidence/processed/{evidence_id}.txt",
     )
+    return response["Body"].read().decode("utf-8")

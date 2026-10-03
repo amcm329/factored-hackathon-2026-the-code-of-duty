@@ -3,3 +3,8 @@ dist/
 .env
 .env.*
 npm-debug.log*
+.venv/
+__pycache__/
+*.py[cod]
+retrieval_assets/
+model_assets/

@@ -14,27 +14,30 @@ model_name = os.getenv(
     "E5_MODEL",
     "intfloat/multilingual-e5-base",
 )
-
 asset_dir = Path(
     os.getenv(
         "RETRIEVAL_ASSET_DIR",
         "/opt/factored-ai/retrieval_assets",
     )
 )
-
 index_path = asset_dir / "complaints.faiss"
 mapping_path = asset_dir / "complaint_ids.json"
 read_chunk_size = 2000
-embedding_batch_size = 128
+embedding_batch_size = 32
 
 
 def build_retrieval_index():
     """Build the FAISS complaint index from the private RDS complaints table.
 
-    Returns:
-        dict: Paths and number of complaint vectors written.
-    """
+    Parameters
+    ----------
+    None.
 
+    Returns
+    -------
+    dict
+        Paths and number of complaint vectors written.
+    """
     model = SentenceTransformer(model_name)
     index = None
     complaint_ids = []
@@ -80,12 +83,10 @@ def build_retrieval_index():
         parents=True,
         exist_ok=True,
     )
-
     faiss.write_index(
         index,
         str(index_path),
     )
-
     mapping_path.write_text(
         json.dumps(
             complaint_ids,
@@ -102,14 +103,17 @@ def build_retrieval_index():
 
 
 def main():
-    """Build retrieval assets from private RDS and print the result.
+    """Build retrieval assets and print their locations.
 
-    Returns:
-        None
+    Parameters
+    ----------
+    None.
+
+    Returns
+    -------
+    None.
     """
-
-    result = build_retrieval_index()
-    print(result)
+    print(build_retrieval_index())
 
 
 if __name__ == "__main__":

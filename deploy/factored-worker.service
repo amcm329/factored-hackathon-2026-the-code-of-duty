@@ -1,5 +1,5 @@
 [Unit]
-Description=Factored AI Chat Backend API
+Description=Factored AI Worker API
 After=network.target
 
 [Service]
@@ -7,9 +7,9 @@ Type=simple
 User=ssm-user
 Group=ssm-user
 WorkingDirectory=/opt/factored-ai
-EnvironmentFile=/etc/factored-ai.env
+EnvironmentFile=/etc/factored-worker.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/factored-ai/.venv/bin/python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000 --workers 1
+ExecStart=/opt/factored-ai/.venv/bin/python -m uvicorn backend.worker_app:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=5
 

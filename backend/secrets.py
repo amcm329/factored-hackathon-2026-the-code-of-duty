@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from functools import lru_cache
 
 import boto3
@@ -18,6 +18,7 @@ database_secret_name = os.getenv(
     "DATABASE_SECRET_NAME",
     "factored/database/url",
 )
+prompts_secret_name = "factored/prompts"
 
 
 @lru_cache(maxsize=8)
@@ -28,11 +29,9 @@ def _get_json_secret(secret_name):
         "secretsmanager",
         region_name=aws_region,
     )
-
     response = client.get_secret_value(
         SecretId=secret_name,
     )
-
     return json.loads(response["SecretString"])
 
 
@@ -52,3 +51,9 @@ def get_database_url():
     """Return the private PostgreSQL/RDS connection URL."""
 
     return _get_json_secret(database_secret_name)["DATABASE_URL"]
+
+
+def get_prompt_config():
+    """Return prompt and fixed-message configuration."""
+
+    return _get_json_secret(prompts_secret_name)

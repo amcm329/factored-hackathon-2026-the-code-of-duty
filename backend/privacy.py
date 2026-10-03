@@ -1,6 +1,6 @@
-from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
-from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
+from presidio_analyzer.nlp_engine import NlpEngineProvider
+from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 
 
 nlp_configuration = {

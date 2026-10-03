@@ -11,6 +11,7 @@ from backend.database import (
     record_interaction_turn,
 )
 from backend.disputes import open_dispute
+from backend.language import detect_language
 from backend.metrics import publish_resolution_metrics
 from backend.openai_client import generate_reply
 from backend.privacy import sanitize_text
@@ -78,9 +79,13 @@ def create_dispute(payload=Body(...), customer_id=Depends(get_current_customer_i
             detail="transaction_id and reason are required",
         )
 
+    reason_language = detect_language(
+        reason,
+        fallback=language,
+    )
     safe_reason = sanitize_text(
         reason,
-        language,
+        reason_language,
     )
 
     try:
@@ -174,9 +179,13 @@ def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
             detail="Authentication is required to use evidence",
         )
 
+    message_language = detect_language(
+        message,
+        fallback=language,
+    )
     safe_message = sanitize_text(
         message,
-        language,
+        message_language,
     )
     retrieval_texts = [safe_message]
     evidence_context = []
@@ -228,6 +237,17 @@ def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
         if row is None:
             continue
 
+        description = row.get("description") or ""
+        resolution = row.get("resolution") or ""
+        description_language = detect_language(
+            description,
+            fallback=language,
+        )
+        resolution_language = detect_language(
+            resolution,
+            fallback=description_language,
+        )
+
         similar_cases.append(
             {
                 "score": match["score"],
@@ -236,12 +256,12 @@ def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
                 "priority": row.get("priority") or "",
                 "status": row.get("status") or "",
                 "description": sanitize_text(
-                    row.get("description") or "",
-                    language,
+                    description,
+                    description_language,
                 )[:1500],
                 "resolution": sanitize_text(
-                    row.get("resolution") or "",
-                    language,
+                    resolution,
+                    resolution_language,
                 )[:1500],
             }
         )

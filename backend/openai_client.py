@@ -2,6 +2,7 @@ import os
 
 from openai import OpenAI
 
+from backend.language import detect_language
 from backend.privacy import sanitize_text
 from backend.secrets import get_openai_api_key, get_prompt_config
 
@@ -34,7 +35,8 @@ def generate_reply(message, language="en", history=None, evidence_context=None, 
     language_names = prompt_config["ALLOWED_LANGUAGES"]
     instructions = (
         f'{prompt_config["SYSTEM_PROMPT"].strip()}\n\n'
-        f'Respond in {language_names[language]}.'
+        f'Respond in {language_names[language]} unless the user explicitly asks '
+        'for another supported response language.'
     )
 
     input_messages = []
@@ -44,10 +46,17 @@ def generate_reply(message, language="en", history=None, evidence_context=None, 
         content = item.get("content", "")
 
         if role in {"user", "assistant"} and content:
+            history_language = detect_language(
+                content,
+                fallback=language,
+            )
             input_messages.append(
                 {
                     "role": role,
-                    "content": sanitize_text(content, language),
+                    "content": sanitize_text(
+                        content,
+                        history_language,
+                    ),
                 }
             )
 

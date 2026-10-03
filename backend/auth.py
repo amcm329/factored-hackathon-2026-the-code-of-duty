@@ -2,8 +2,8 @@ import os
 from functools import lru_cache
 
 import jwt
-from fastapi import Header, HTTPException
 from jwt import PyJWKClient
+from fastapi import Header, HTTPException
 
 
 aws_region = os.getenv("AWS_REGION", "us-east-1")

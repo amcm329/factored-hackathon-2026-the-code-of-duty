@@ -2,13 +2,14 @@ import os
 import uuid
 
 import boto3
-import fitz
+import pymupdf
 
 from backend.database import (
     create_evidence_record,
     get_evidence_record,
     update_evidence_status,
 )
+from backend.language import detect_language
 from backend.privacy import sanitize_text
 
 
@@ -63,7 +64,7 @@ def create_pdf_upload(customer_id, content_type, file_size_bytes):
 def _extract_pdf_text(pdf_bytes):
     """Extract selectable text from a PDF."""
 
-    document = fitz.open(
+    document = pymupdf.open(
         stream=pdf_bytes,
         filetype="pdf",
     )
@@ -100,9 +101,13 @@ def process_pdf_evidence(customer_id, evidence_id, language="en"):
         raise ValueError("PDF is larger than the 10 MB limit")
 
     extracted_text = _extract_pdf_text(response["Body"].read())
+    detected_language = detect_language(
+        extracted_text,
+        fallback=language,
+    )
     safe_text = sanitize_text(
         extracted_text,
-        language,
+        detected_language,
     )
     processed_key = f"evidence/processed/{evidence_id}.txt"
 

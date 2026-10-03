@@ -22,43 +22,70 @@ analyzer = AnalyzerEngine(
 
 anonymizer = AnonymizerEngine()
 
-customer_id_recognizer = PatternRecognizer(
-    supported_entity="CUSTOMER_ID",
-    patterns=[
-        Pattern(
-            name="customer_id_pattern",
-            regex=r"\bCUST[_-]?[A-Z0-9]+\b",
-            score=0.85,
-        )
-    ],
-    supported_language="en",
-)
+sensitive_entities = [
+    "PERSON",
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "CREDIT_CARD",
+    "IBAN_CODE",
+    "IP_ADDRESS",
+    "LOCATION",
+    "US_BANK_NUMBER",
+    "CUSTOMER_ID",
+    "TRANSACTION_ID",
+]
 
-transaction_id_recognizer = PatternRecognizer(
-    supported_entity="TRANSACTION_ID",
-    patterns=[
-        Pattern(
-            name="transaction_id_pattern",
-            regex=r"\b(?:TX|TXN)[_-]?[A-Z0-9]+\b",
-            score=0.85,
-        )
-    ],
-    supported_language="en",
-)
+for supported_language in ["en", "es", "pt"]:
+    customer_id_recognizer = PatternRecognizer(
+        supported_entity="CUSTOMER_ID",
+        patterns=[
+            Pattern(
+                name="customer_id_pattern",
+                regex=r"\bCUST[_-]?[A-Z0-9]+\b",
+                score=0.85,
+            )
+        ],
+        supported_language=supported_language,
+    )
 
-analyzer.registry.add_recognizer(customer_id_recognizer)
-analyzer.registry.add_recognizer(transaction_id_recognizer)
+    transaction_id_recognizer = PatternRecognizer(
+        supported_entity="TRANSACTION_ID",
+        patterns=[
+            Pattern(
+                name="transaction_id_pattern",
+                regex=r"\b(?:TX|TXN)[_-]?[A-Z0-9]+\b",
+                score=0.85,
+            )
+        ],
+        supported_language=supported_language,
+    )
+
+    analyzer.registry.add_recognizer(customer_id_recognizer)
+    analyzer.registry.add_recognizer(transaction_id_recognizer)
 
 
 def sanitize_text(text, language="en"):
-    """Detect and replace PII before text leaves the AWS backend."""
+    """Detect and replace sensitive PII before text leaves the AWS backend.
 
+    Parameters
+    ----------
+    text : str
+        Text that may contain sensitive information.
+    language : str
+        Language code used by Presidio.
+
+    Returns
+    -------
+    str
+        Text with sensitive entities anonymized.
+    """
     if language not in {"en", "es", "pt"}:
         language = "en"
 
     results = analyzer.analyze(
         text=text,
         language=language,
+        entities=sensitive_entities,
     )
 
     return anonymizer.anonymize(
@@ -68,8 +95,22 @@ def sanitize_text(text, language="en"):
 
 
 def create_alias_map(records, id_field, prefix):
-    """Create short-lived aliases for structured database identifiers."""
+    """Create short-lived aliases for structured database identifiers.
 
+    Parameters
+    ----------
+    records : list
+        Database records containing the real identifier.
+    id_field : str
+        Field containing the real identifier.
+    prefix : str
+        Prefix used for generated aliases.
+
+    Returns
+    -------
+    tuple
+        Sanitized records and alias-to-real-ID mapping.
+    """
     alias_map = {}
     safe_records = []
 

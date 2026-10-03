@@ -1,12 +1,9 @@
 from pathlib import Path, PurePosixPath
-
 import boto3
 import pandas as pd
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.dialects.postgresql import insert
-
 from backend.secrets import get_database_url, get_organizer_s3_config
-
 
 chunk_size = 50000
 
@@ -86,7 +83,7 @@ def run_schema_scripts(engine):
     -------
     None.
     """
-    sql_dir = Path(__file__).resolve().parent / "sql"
+    sql_dir = Path(__file__).resolve().parents[1] / "backend" / "sql"
     sql_files = sorted(sql_dir.glob("*.sql"))
 
     if not sql_files:
@@ -301,6 +298,7 @@ def main():
 
     # We ingest only organizer data required by the dispute workflow.
     s3 = create_organizer_s3_client()
+
     csv_keys = list_csv_keys(
         s3=s3,
         bucket=bucket,
@@ -323,6 +321,7 @@ def main():
         )
 
     engine.dispose()
+
     print("Dispute-workflow S3 -> RDS ingestion completed.")
 
 

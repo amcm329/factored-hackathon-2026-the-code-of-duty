@@ -1,27 +1,27 @@
-import os
 import json
+import os
 from pathlib import Path
-
 import faiss
 import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
-
 from backend.database import get_engine
-
 
 model_name = os.getenv(
     "E5_MODEL",
     "intfloat/multilingual-e5-base",
 )
+
 asset_dir = Path(
     os.getenv(
         "RETRIEVAL_ASSET_DIR",
         "/opt/factored-ai/retrieval_assets",
     )
 )
+
 index_path = asset_dir / "complaints.faiss"
 mapping_path = asset_dir / "complaint_ids.json"
+
 read_chunk_size = 2000
 embedding_batch_size = 32
 
@@ -43,11 +43,11 @@ def build_retrieval_index():
     complaint_ids = []
 
     query = """
-        SELECT complaint_id, description
-        FROM complaints
-        WHERE description IS NOT NULL
-          AND BTRIM(description) <> ''
-        ORDER BY complaint_id
+    SELECT complaint_id, description
+    FROM complaints
+    WHERE description IS NOT NULL
+    AND BTRIM(description) <> ''
+    ORDER BY complaint_id
     """
 
     for chunk in pd.read_sql(
@@ -72,6 +72,7 @@ def build_retrieval_index():
             index = faiss.IndexFlatIP(vectors.shape[1])
 
         index.add(vectors)
+
         complaint_ids.extend(
             chunk["complaint_id"].astype(str).tolist()
         )
@@ -83,10 +84,12 @@ def build_retrieval_index():
         parents=True,
         exist_ok=True,
     )
+
     faiss.write_index(
         index,
         str(index_path),
     )
+
     mapping_path.write_text(
         json.dumps(
             complaint_ids,

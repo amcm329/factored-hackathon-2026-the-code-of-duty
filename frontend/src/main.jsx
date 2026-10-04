@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-  Bot,
   CalendarDays,
   ChevronDown,
   CreditCard,
@@ -19,6 +18,8 @@ import {
   WalletCards,
 } from 'lucide-react'
 import './styles.css'
+import hermesLogo from './assets/hermes-logo.png'
+import hermesIcon from './assets/hermes-icon.png'
 import {
   create_dispute,
   get_welcome_message,
@@ -92,7 +93,7 @@ const personal_dispute_signals = [
 
 const copy = {
   en: {
-    title: 'AI Dispute Assistant',
+    title: 'Hermes',
     subtitle: 'Help with disputed or unrecognized transactions',
     disputes: 'Disputes',
     guest: 'Guest mode',
@@ -130,7 +131,7 @@ const copy = {
     requestFailed: 'The request could not be completed. Please try again.',
   },
   es: {
-    title: 'Asistente de Disputas con IA',
+    title: 'Hermes',
     subtitle: 'Ayuda con transacciones disputadas o no reconocidas',
     disputes: 'Disputas',
     guest: 'Modo invitado',
@@ -168,7 +169,7 @@ const copy = {
     requestFailed: 'No se pudo completar la solicitud. Inténtalo de nuevo.',
   },
   pt: {
-    title: 'Assistente de Contestação com IA',
+    title: 'Hermes',
     subtitle: 'Ajuda com transações contestadas ou não reconhecidas',
     disputes: 'Contestações',
     guest: 'Modo convidado',
@@ -215,11 +216,7 @@ function looksPersonalDispute(value) {
 function Brand() {
   return (
     <div className="brand">
-      <div className="brand-mark"><span /><span /></div>
-      <div>
-        <div className="brand-title">YourBank</div>
-        <div className="brand-subtitle">Demo Bank</div>
-      </div>
+      <img className="brand-logo" src={hermesLogo} alt="Hermes" />
     </div>
   )
 }
@@ -296,7 +293,7 @@ function Header({ t, language, onLanguage, authenticated, customerId, onLogin, o
   return (
     <header className="topbar">
       <div className="assistant-heading">
-        <div className="assistant-icon"><Bot size={34} /></div>
+        <div className="assistant-icon"><img src={hermesIcon} alt="" /></div>
         <div><h1>{t.title}</h1><p>{t.subtitle}</p></div>
       </div>
       <div className="topbar-actions">
@@ -687,7 +684,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
       <div className="messages" ref={messagesRef}>
         {messages.map((message, index) => (
           <div className={`message-row ${message.from}`} key={`${message.from}-${index}`}>
-            {message.from === 'bot' && <div className="bot-avatar"><Bot size={24} /></div>}
+            {message.from === 'bot' && <div className="bot-avatar"><img src={hermesIcon} alt="" /></div>}
             <div className="message-stack">
               <div className={`message-bubble ${message.from}`}>{message.text}</div>
               <span className="message-time">{message.time}</span>

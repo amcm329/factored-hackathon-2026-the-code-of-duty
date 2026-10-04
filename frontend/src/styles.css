@@ -31,21 +31,14 @@ body {
   flex-direction: column;
 }
 
-.brand { display: flex; align-items: center; gap: 14px; padding: 0 10px; }
-.brand-mark { position: relative; width: 42px; height: 42px; }
-.brand-mark span {
-  position: absolute;
-  width: 23px;
-  height: 34px;
-  background: #19a7ff;
-  border-radius: 18px 4px 18px 4px;
-  transform: rotate(-6deg);
-  top: 4px;
+.brand { display: flex; align-items: center; padding: 0 4px; }
+.brand-logo {
+  width: 100%;
+  max-width: 205px;
+  height: auto;
+  display: block;
+  border-radius: 12px;
 }
-.brand-mark span:first-child { left: 1px; }
-.brand-mark span:last-child { right: 0; transform: scaleX(-1) rotate(-6deg); background: #36c2ff; }
-.brand-title { font-weight: 800; font-size: 26px; line-height: 1; }
-.brand-subtitle { margin-top: 7px; color: #d2e8ff; font-size: 15px; }
 
 .nav-list { margin-top: 52px; display: grid; gap: 14px; }
 .nav-item {
@@ -85,7 +78,9 @@ body {
   place-items: center;
   color: #0b67e6;
   background: #eef7ff;
+  overflow: hidden;
 }
+.assistant-icon img { width: 64px; height: 64px; object-fit: contain; }
 .assistant-heading h1 { margin: 0; font-size: 32px; letter-spacing: -1px; }
 .assistant-heading p { margin: 5px 0 0; font-size: 20px; color: #7285ab; }
 .topbar-actions { display: flex; align-items: center; gap: 14px; }
@@ -186,7 +181,8 @@ body {
 .message-bubble.bot { background: #f1f4f8; }
 .message-time { display: block; color: #8192b3; font-size: 14px; margin: 8px 0 0; }
 .bot-avatar, .user-mini-avatar { flex: 0 0 auto; width: 46px; height: 46px; }
-.bot-avatar { color: #0c6eea; background: #eff7ff; border-radius: 50%; display: grid; place-items: center; }
+.bot-avatar { color: #0c6eea; background: #eff7ff; border-radius: 50%; display: grid; place-items: center; overflow: hidden; }
+.bot-avatar img { width: 34px; height: 34px; object-fit: contain; }
 .user-mini-avatar { margin-top: 8px; }
 
 .transaction-card {

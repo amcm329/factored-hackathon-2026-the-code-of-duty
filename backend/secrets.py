@@ -18,7 +18,14 @@ database_secret_name = os.getenv(
     "DATABASE_SECRET_NAME",
     "factored/database/url",
 )
-prompts_secret_name = "factored/prompts"
+prompts_secret_name = os.getenv(
+    "PROMPTS_SECRET_NAME",
+    "factored/prompts",
+)
+dispute_policy_secret_name = os.getenv(
+    "DISPUTE_POLICY_SECRET_NAME",
+    "factored/dispute-policy",
+)
 
 
 @lru_cache(maxsize=8)
@@ -57,3 +64,9 @@ def get_prompt_config():
     """Return prompt and fixed-message configuration."""
 
     return _get_json_secret(prompts_secret_name)
+
+
+def get_dispute_policy_config():
+    """Return country-specific dispute window configuration."""
+
+    return _get_json_secret(dispute_policy_secret_name)

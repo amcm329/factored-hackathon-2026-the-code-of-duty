@@ -4,7 +4,7 @@ import requests
 
 
 worker_base_url = os.getenv("WORKER_BASE_URL", "").rstrip("/")
-worker_timeout_seconds = 30
+worker_timeout_seconds = 120
 
 
 def _post(path, payload):
@@ -34,22 +34,15 @@ def read_sanitized_evidence(evidence_id, customer_id):
     )["text"]
 
 
-def search_similar_cases_worker(text, k=5):
-    """Run E5 and FAISS search on Worker EC2."""
-
-    return _post(
-        "/internal/retrieval/search",
-        {
-            "text": text,
-            "k": k,
-        },
-    )["matches"]
-
-
-def predict_escalation_worker(text):
+def predict_escalation_worker(text, language, country, segment):
     """Run VAD and Logistic Regression inference on Worker EC2."""
 
     return _post(
         "/internal/escalation/predict",
-        {"text": text},
+        {
+            "text": text,
+            "language": language,
+            "country": country,
+            "segment": segment,
+        },
     )

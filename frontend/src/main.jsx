@@ -26,6 +26,7 @@ import {
   process_evidence,
   request_evidence_upload,
   send_chat,
+  send_satisfaction_feedback,
   upload_evidence_pdf,
 } from '../api'
 import {
@@ -36,6 +37,58 @@ import {
 } from '../auth'
 
 const language_storage_key = 'factored_language'
+const max_evidence_files = 3
+
+const personal_dispute_signals = [
+  "i don't recognize",
+  'i do not recognize',
+  'i want to dispute',
+  'i need to dispute',
+  'not my transaction',
+  'not my purchase',
+  'unauthorized transaction',
+  'unauthorised transaction',
+  'unauthorized charge',
+  'unauthorised charge',
+  'my card was charged',
+  'charged my card',
+  'dispute this transaction',
+  'open a dispute',
+  "this transaction isn't mine",
+  'this transaction is not mine',
+  'no reconozco',
+  'quiero disputar',
+  'necesito disputar',
+  'no es mi transacción',
+  'no es mi transaccion',
+  'no es mi compra',
+  'cargo no reconocido',
+  'transacción no reconocida',
+  'transaccion no reconocida',
+  'compra no reconocida',
+  'cargaron mi tarjeta',
+  'me cobraron',
+  'disputar esta transacción',
+  'disputar esta transaccion',
+  'abrir una disputa',
+  'não reconheço',
+  'quero contestar',
+  'preciso contestar',
+  'nao reconheco',
+  'não é minha transação',
+  'nao e minha transacao',
+  'transação não reconhecida',
+  'transacao nao reconhecida',
+  'compra não reconhecida',
+  'compra nao reconhecida',
+  'me cobraram',
+  'cobraram meu cartão',
+  'cobraram meu cartao',
+  'contestar esta transação',
+  'contestar esta transacao',
+  'abrir uma contestação',
+  'abrir uma contestacao',
+]
 
 const copy = {
   en: {
@@ -54,9 +107,11 @@ const copy = {
     invalid: 'Invalid credentials.',
     cancel: 'Cancel',
     continueSignIn: 'Sign in and continue',
-    validatedBadge: 'Validated transaction',
-    validationPendingTitle: 'Transaction details not available yet',
-    validationPendingText: 'Sign in and select a transaction before opening a dispute.',
+    validatedBadge: 'Selected transaction',
+    validationPendingTitle: 'No transaction selected',
+    validationPendingText: 'A transaction will be selected explicitly before a dispute is opened.',
+    selectTransaction: 'Select the transaction you want to dispute.',
+    select: 'Select',
     openDispute: 'Open dispute',
     placeholder: 'Ask about a transaction dispute...',
     details: 'Transaction Details',
@@ -64,9 +119,15 @@ const copy = {
     amount: 'Amount',
     date: 'Date',
     location: 'Location',
-    card: 'Card',
+    card: 'Product',
     noTransactionTitle: 'Personal transaction details are hidden',
     noTransactionText: 'Sign in when you need access to your personal banking information.',
+    satisfactionQuestion: 'Did this resolve your issue?',
+    yes: 'Yes',
+    no: 'No',
+    noTransactions: 'No transactions were available for selection.',
+    evidenceLimit: 'You can attach up to three PDF evidence files.',
+    requestFailed: 'The request could not be completed. Please try again.',
   },
   es: {
     title: 'Asistente de Disputas con IA',
@@ -84,9 +145,11 @@ const copy = {
     invalid: 'Credenciales inválidas.',
     cancel: 'Cancelar',
     continueSignIn: 'Iniciar sesión y continuar',
-    validatedBadge: 'Transacción validada',
-    validationPendingTitle: 'Los detalles de la transacción aún no están disponibles',
-    validationPendingText: 'Inicia sesión y selecciona una transacción antes de abrir una disputa.',
+    validatedBadge: 'Transacción seleccionada',
+    validationPendingTitle: 'No hay una transacción seleccionada',
+    validationPendingText: 'La transacción se seleccionará explícitamente antes de abrir una disputa.',
+    selectTransaction: 'Selecciona la transacción que quieres disputar.',
+    select: 'Seleccionar',
     openDispute: 'Abrir disputa',
     placeholder: 'Pregunta sobre una disputa de transacción...',
     details: 'Detalles de la transacción',
@@ -94,9 +157,15 @@ const copy = {
     amount: 'Monto',
     date: 'Fecha',
     location: 'Ubicación',
-    card: 'Tarjeta',
+    card: 'Producto',
     noTransactionTitle: 'Los detalles personales de la transacción están ocultos',
     noTransactionText: 'Inicia sesión cuando necesites acceder a tu información bancaria personal.',
+    satisfactionQuestion: '¿Esto resolvió tu problema?',
+    yes: 'Sí',
+    no: 'No',
+    noTransactions: 'No hay transacciones disponibles para seleccionar.',
+    evidenceLimit: 'Puedes adjuntar hasta tres archivos PDF como evidencia.',
+    requestFailed: 'No se pudo completar la solicitud. Inténtalo de nuevo.',
   },
   pt: {
     title: 'Assistente de Contestação com IA',
@@ -114,9 +183,11 @@ const copy = {
     invalid: 'Credenciais inválidas.',
     cancel: 'Cancelar',
     continueSignIn: 'Entrar e continuar',
-    validatedBadge: 'Transação validada',
-    validationPendingTitle: 'Os detalhes da transação ainda não estão disponíveis',
-    validationPendingText: 'Entre e selecione uma transação antes de abrir uma contestação.',
+    validatedBadge: 'Transação selecionada',
+    validationPendingTitle: 'Nenhuma transação selecionada',
+    validationPendingText: 'A transação será selecionada explicitamente antes de abrir uma contestação.',
+    selectTransaction: 'Selecione a transação que deseja contestar.',
+    select: 'Selecionar',
     openDispute: 'Abrir contestação',
     placeholder: 'Pergunte sobre uma contestação de transação...',
     details: 'Detalhes da transação',
@@ -124,10 +195,21 @@ const copy = {
     amount: 'Valor',
     date: 'Data',
     location: 'Localização',
-    card: 'Cartão',
+    card: 'Produto',
     noTransactionTitle: 'Os detalhes pessoais da transação estão ocultos',
     noTransactionText: 'Entre quando precisar acessar suas informações bancárias pessoais.',
+    satisfactionQuestion: 'Isso resolveu seu problema?',
+    yes: 'Sim',
+    no: 'Não',
+    noTransactions: 'Não há transações disponíveis para selecionar.',
+    evidenceLimit: 'Você pode anexar até três arquivos PDF como evidência.',
+    requestFailed: 'Não foi possível concluir a solicitação. Tente novamente.',
   },
+}
+
+function looksPersonalDispute(value) {
+  const normalized = String(value || '').toLowerCase().replace(/’/g, "'").replace(/\s+/g, ' ').trim()
+  return personal_dispute_signals.some((signal) => normalized.includes(signal))
 }
 
 function Brand() {
@@ -321,47 +403,143 @@ function TransactionDetails({ t, authenticated, transaction, onLogin }) {
 function Chat({ t, language, authenticated, transaction, onTransaction, onRequireLogin }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [evidence_ids, setEvidenceIds] = useState([])
+  const [evidenceIds, setEvidenceIds] = useState([])
   const [interactionId] = useState(() => crypto.randomUUID())
   const [isUploadingEvidence, setIsUploadingEvidence] = useState(false)
   const [interactionFinished, setInteractionFinished] = useState(false)
+  const [awaitingFeedback, setAwaitingFeedback] = useState(false)
+  const [pendingDisputeReason, setPendingDisputeReason] = useState('')
+  const [pendingLoginRequest, setPendingLoginRequest] = useState(null)
+  const [transactions, setTransactions] = useState([])
+  const [transactionsError, setTransactionsError] = useState('')
+  const [showTransactionSelection, setShowTransactionSelection] = useState(false)
+  const [readyToOpenDispute, setReadyToOpenDispute] = useState(false)
   const composerRef = React.useRef(null)
   const messagesRef = React.useRef(null)
+  const welcomeLoadedRef = React.useRef(false)
 
-  function addBot(text) {
+  function addMessage(from, text, extra = {}) {
     if (!text) return
 
     setMessages((items) => [...items, {
-      from: 'bot',
+      from,
       text,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      ...extra,
     }])
   }
 
-  React.useEffect(() => {
-    get_welcome_message(language)
-      .then((result) => {
-        setMessages([{
-          from: 'bot',
-          text: result.message,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        }])
-      })
-      .catch(() => setMessages([]))
-  }, [language])
+  function addBot(text, extra = {}) {
+    addMessage('bot', text, extra)
+  }
 
-  React.useEffect(() => {
-    if (!authenticated) {
-      onTransaction(null)
-      return
+  function addUser(text) {
+    addMessage('user', text)
+  }
+
+  function currentHistory() {
+    return messages
+      .filter((message) => !message.feedbackPrompt)
+      .map((message) => ({
+        role: message.from === 'user' ? 'user' : 'assistant',
+        content: message.text,
+      }))
+  }
+
+  function showError(error) {
+    addBot(error?.message || t.requestFailed)
+  }
+
+  async function loadTransactions() {
+    if (!authenticated) return []
+
+    try {
+      const result = await list_transactions()
+      const formatted = (result.transactions || []).map(formatTransaction).filter(Boolean)
+      setTransactions(formatted)
+      setTransactionsError('')
+      return formatted
+    } catch (error) {
+      setTransactions([])
+      setTransactionsError(error?.message || t.requestFailed)
+      return null
     }
+  }
 
-    list_transactions()
-      .then((result) => {
-        onTransaction(formatTransaction(result.transactions?.[0]))
-      })
-      .catch(() => onTransaction(null))
+  async function enterTransactionSelection(reason) {
+    setPendingDisputeReason(reason)
+    setAwaitingFeedback(false)
+    setReadyToOpenDispute(false)
+    onTransaction(null)
+    const available = transactions.length ? transactions : await loadTransactions()
+    setShowTransactionSelection(true)
+
+    if (available !== null && !available.length) {
+      setTransactionsError(t.noTransactions)
+    }
+  }
+
+  async function processChatMessage(message, history) {
+    try {
+      const result = await send_chat(
+        message,
+        language,
+        history,
+        evidenceIds,
+        interactionId,
+      )
+
+      if (result.authentication_required) {
+        setPendingLoginRequest({ message, history })
+        onRequireLogin()
+        return
+      }
+
+      if (result.response) {
+        addBot(result.response)
+      }
+
+      if (result.needs_satisfaction_feedback) {
+        setPendingDisputeReason(message)
+        setAwaitingFeedback(true)
+        addBot(t.satisfactionQuestion, { feedbackPrompt: true })
+        return
+      }
+
+      if (result.needs_transaction_selection) {
+        await enterTransactionSelection(message)
+      }
+    } catch (error) {
+      showError(error)
+    }
+  }
+
+  React.useEffect(() => {
+    if (welcomeLoadedRef.current) return
+
+    welcomeLoadedRef.current = true
+    get_welcome_message(language)
+      .then((result) => addBot(result.message))
+      .catch((error) => showError(error))
+  }, [])
+
+  React.useEffect(() => {
+    if (authenticated) {
+      loadTransactions()
+    } else {
+      setTransactions([])
+      setTransactionsError('')
+      onTransaction(null)
+    }
   }, [authenticated])
+
+  React.useEffect(() => {
+    if (!authenticated || !pendingLoginRequest) return
+
+    const request = pendingLoginRequest
+    setPendingLoginRequest(null)
+    processChatMessage(request.message, request.history)
+  }, [authenticated, pendingLoginRequest])
 
   React.useEffect(() => {
     const container = messagesRef.current
@@ -369,7 +547,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
     if (container) {
       container.scrollTop = container.scrollHeight
     }
-  }, [messages])
+  }, [messages, showTransactionSelection, readyToOpenDispute])
 
   function resizeComposer() {
     const textarea = composerRef.current
@@ -382,19 +560,26 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
   }
 
   async function handleEvidenceFile(file) {
-    if (!file || interactionFinished) return
+    if (!file || interactionFinished || awaitingFeedback) return
 
     if (!authenticated) {
       onRequireLogin()
       return
     }
 
+    if (evidenceIds.length >= max_evidence_files) {
+      addBot(t.evidenceLimit)
+      return
+    }
+
     if (file.type !== 'application/pdf') {
-      throw new Error('Only PDF evidence is allowed')
+      addBot('Only PDF evidence is allowed')
+      return
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      throw new Error('PDF must be 10 MB or smaller')
+      addBot('PDF must be 10 MB or smaller')
+      return
     }
 
     setIsUploadingEvidence(true)
@@ -402,8 +587,10 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
     try {
       const upload = await request_evidence_upload(file)
       await upload_evidence_pdf(file, upload)
-      await process_evidence(upload.evidence_id, language)
+      await process_evidence(upload.evidence_id)
       setEvidenceIds((current) => [...current, upload.evidence_id])
+    } catch (error) {
+      showError(error)
     } finally {
       setIsUploadingEvidence(false)
     }
@@ -414,28 +601,52 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
 
     const value = input.trim()
 
-    if (!value || interactionFinished) return
+    if (!value || interactionFinished || awaitingFeedback) return
 
-    const history = messages.map((message) => ({
-      role: message.from === 'user' ? 'user' : 'assistant',
-      content: message.text,
-    }))
-
-    setMessages((items) => [...items, {
-      from: 'user',
-      text: value,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    }])
+    const history = currentHistory()
+    addUser(value)
     setInput('')
 
-    const result = await send_chat(
-      value,
-      language,
-      history,
-      evidence_ids,
-      interactionId,
-    )
-    addBot(result.response)
+    if (!authenticated && looksPersonalDispute(value)) {
+      setPendingLoginRequest({ message: value, history })
+      onRequireLogin()
+      return
+    }
+
+    await processChatMessage(value, history)
+  }
+
+  async function handleFeedback(feedback) {
+    if (!awaitingFeedback) return
+
+    try {
+      const result = await send_satisfaction_feedback(
+        interactionId,
+        feedback,
+        language,
+      )
+      addUser(feedback === 'yes' ? t.yes : t.no)
+      setAwaitingFeedback(false)
+
+      if (feedback === 'yes') {
+        setInteractionFinished(true)
+        setShowTransactionSelection(false)
+        setReadyToOpenDispute(false)
+        return
+      }
+
+      if (result.needs_transaction_selection) {
+        await enterTransactionSelection(pendingDisputeReason)
+      }
+    } catch (error) {
+      showError(error)
+    }
+  }
+
+  function selectTransaction(selected) {
+    onTransaction(selected)
+    setShowTransactionSelection(false)
+    setReadyToOpenDispute(true)
   }
 
   async function openDispute() {
@@ -444,29 +655,32 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
       return
     }
 
-    if (!transaction) return
+    if (!transaction || !pendingDisputeReason || interactionFinished) return
 
-    const lastUserMessage = [...messages].reverse().find((message) => message.from === 'user')
+    try {
+      const result = await create_dispute({
+        transaction_id: transaction.transaction_id,
+        reason: pendingDisputeReason,
+        language,
+        interaction_id: interactionId,
+        evidence_ids: evidenceIds,
+      })
 
-    if (!lastUserMessage?.text) return
+      if (result.response) {
+        addBot(result.response)
+      } else {
+        addBot(`${result.dispute.status}: ${result.dispute.dispute_id}`)
+      }
 
-    const result = await create_dispute({
-      transaction_id: transaction.transaction_id,
-      reason: lastUserMessage.text,
-      language,
-      interaction_id: interactionId,
-    })
-
-    if (result.response) {
-      addBot(result.response)
-    } else {
-      addBot(`${result.dispute.status}: ${result.dispute.dispute_id}`)
-    }
-
-    if (result.interaction_finished) {
       setInteractionFinished(true)
+      setReadyToOpenDispute(false)
+      setShowTransactionSelection(false)
+    } catch (error) {
+      showError(error)
     }
   }
+
+  const composerDisabled = interactionFinished || awaitingFeedback
 
   return (
     <section className="chat-panel">
@@ -477,18 +691,36 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
             <div className="message-stack">
               <div className={`message-bubble ${message.from}`}>{message.text}</div>
               <span className="message-time">{message.time}</span>
-              {message.from === 'bot' && transaction && authenticated && index === messages.length - 1 && !interactionFinished && (
-                <>
-                  <TransactionCard transaction={transaction} />
-                  <div className="transaction-actions">
-                    <button className="primary" onClick={openDispute}><FileText size={20} />{t.openDispute}</button>
-                  </div>
-                </>
+              {message.feedbackPrompt && awaitingFeedback && (
+                <div className="feedback-actions">
+                  <button className="primary" type="button" onClick={() => handleFeedback('yes')}>{t.yes}</button>
+                  <button className="secondary" type="button" onClick={() => handleFeedback('no')}>{t.no}</button>
+                </div>
               )}
             </div>
             {message.from === 'user' && <div className="user-mini-avatar"><UserRound size={21} /></div>}
           </div>
         ))}
+
+        {showTransactionSelection && authenticated && !interactionFinished && (
+          <div className="transaction-selection">
+            <div className="message-bubble bot">{t.selectTransaction}</div>
+            {transactionsError && <div className="selection-error">{transactionsError}</div>}
+            {transactions.map((item) => (
+              <div className="transaction-choice" key={item.transaction_id}>
+                <TransactionCard transaction={item} />
+                <button className="primary" type="button" onClick={() => selectTransaction(item)}>{t.select}</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {readyToOpenDispute && transaction && !interactionFinished && (
+          <div className="selected-transaction-action">
+            <TransactionCard transaction={transaction} />
+            <button className="primary" type="button" onClick={openDispute}><FileText size={20} />{t.openDispute}</button>
+          </div>
+        )}
       </div>
 
       <form className="composer" onSubmit={submit}>
@@ -498,7 +730,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
             type="file"
             accept="application/pdf"
             hidden
-            disabled={isUploadingEvidence || interactionFinished}
+            disabled={isUploadingEvidence || composerDisabled || evidenceIds.length >= max_evidence_files}
             onChange={(event) => {
               const file = event.target.files?.[0]
 
@@ -526,9 +758,9 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
           placeholder={t.placeholder}
           rows={1}
           aria-label={t.placeholder}
-          disabled={interactionFinished}
+          disabled={composerDisabled}
         />
-        <button type="submit" className="send-button" aria-label="Send" disabled={interactionFinished}><Send size={22} /></button>
+        <button type="submit" className="send-button" aria-label="Send" disabled={composerDisabled}><Send size={22} /></button>
       </form>
     </section>
   )
@@ -540,6 +772,7 @@ function App() {
   const [customerId, setCustomerId] = useState(() => get_current_username())
   const [showLogin, setShowLogin] = useState(false)
   const [transaction, setTransaction] = useState(null)
+  const [sessionVersion, setSessionVersion] = useState(0)
   const t = copy[language]
 
   function changeLanguage(value) {
@@ -559,6 +792,7 @@ function App() {
     setAuthenticated(false)
     setCustomerId('')
     setTransaction(null)
+    setSessionVersion((value) => value + 1)
   }
 
   return (
@@ -576,7 +810,7 @@ function App() {
         />
         <div className="content-grid">
           <Chat
-            key={`${language}-${authenticated}`}
+            key={sessionVersion}
             t={t}
             language={language}
             authenticated={authenticated}

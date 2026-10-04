@@ -1,96 +1,89 @@
-import csv
-import os
-import re
-import unicodedata
 from functools import lru_cache
-from pathlib import Path
+
+from pysentimiento import create_analyzer
 
 
-vad_lexicon_path = Path(
-    os.getenv(
-        "VAD_LEXICON_PATH",
-        "/opt/factored-ai/model_assets/vad_lexicon.tsv",
+emotion_vad = {
+    "anger": (-0.51, 0.59, 0.25),
+    "disgust": (-0.60, 0.35, 0.11),
+    "fear": (-0.62, 0.82, -0.43),
+    "joy": (0.81, 0.51, 0.46),
+    "sadness": (-0.63, -0.27, -0.33),
+    "surprise": (0.40, 0.67, -0.13),
+    "others": (0.00, 0.00, 0.00),
+}
+
+
+@lru_cache(maxsize=3)
+def _get_emotion_analyzer(language):
+    """Loads one local emotion analyzer.
+
+    Parameters
+    ----------
+    language : str
+        English, Spanish, or Portuguese language code.
+
+    Returns
+    -------
+    object
+        Cached pysentimiento emotion analyzer.
+    """
+    if language not in {"en", "es", "pt"}:
+        language = "es"
+
+    return create_analyzer(
+        task="emotion",
+        lang=language,
     )
-)
-token_pattern = re.compile(r"[^\W\d_]+", re.UNICODE)
 
 
-def _normalize_token(token):
-    """Normalize one token for VAD lexicon lookup."""
+def extract_vad(text, language="es"):
+    """Converts local emotion probabilities into VAD scores.
 
-    return unicodedata.normalize("NFKC", token).lower().strip()
+    Parameters
+    ----------
+    text : str
+        Sanitized customer text.
+    language : str
+        English, Spanish, or Portuguese language code.
 
-
-@lru_cache(maxsize=1)
-def _load_lexicon():
-    """Load the configured tab-separated VAD lexicon."""
-
-    if not vad_lexicon_path.exists():
-        raise RuntimeError(f"VAD lexicon not found: {vad_lexicon_path}")
-
-    lexicon = {}
-
-    with vad_lexicon_path.open("r", encoding="utf-8-sig", newline="") as file:
-        reader = csv.DictReader(file, delimiter="\t")
-
-        if not reader.fieldnames:
-            raise RuntimeError("VAD lexicon has no header")
-
-        names = {
-            name.lower().strip(): name
-            for name in reader.fieldnames
+    Returns
+    -------
+    dict
+        Valence, arousal, and dominance values in the -1 to 1 range.
+    """
+    if not text or not text.strip():
+        return {
+            "valence": 0.0,
+            "arousal": 0.0,
+            "dominance": 0.0,
         }
-        word_column = names.get("word") or names.get("term") or names.get("token")
-        valence_column = names.get("valence")
-        arousal_column = names.get("arousal")
-        dominance_column = names.get("dominance")
 
-        if not all([word_column, valence_column, arousal_column, dominance_column]):
-            raise RuntimeError(
-                "VAD lexicon must contain word/term, valence, arousal and dominance columns"
-            )
+    analyzer = _get_emotion_analyzer(language)
+    result = analyzer.predict(text[:4000])
+    probabilities = result.probas
 
-        for row in reader:
-            token = _normalize_token(row[word_column])
+    valence = 0.0
+    arousal = 0.0
+    dominance = 0.0
+    total = 0.0
 
-            if not token:
-                continue
+    for emotion, coordinates in emotion_vad.items():
+        probability = float(probabilities.get(emotion, 0.0))
+        valence += probability * coordinates[0]
+        arousal += probability * coordinates[1]
+        dominance += probability * coordinates[2]
+        total += probability
 
-            try:
-                lexicon[token] = (
-                    float(row[valence_column]),
-                    float(row[arousal_column]),
-                    float(row[dominance_column]),
-                )
-            except (TypeError, ValueError):
-                continue
+    if total <= 0:
+        return {
+            "valence": 0.0,
+            "arousal": 0.0,
+            "dominance": 0.0,
+        }
 
-    if not lexicon:
-        raise RuntimeError("VAD lexicon contains no usable rows")
-
-    return lexicon
-
-
-def extract_vad(text):
-    """Extract mean valence, arousal and dominance from sanitized text."""
-
-    lexicon = _load_lexicon()
-    tokens = [
-        _normalize_token(token)
-        for token in token_pattern.findall(text or "")
-    ]
-    matches = [
-        lexicon[token]
-        for token in tokens
-        if token in lexicon
-    ]
-
-    if not matches:
-        raise ValueError("No VAD lexicon terms matched the supplied text")
-
-    count = len(matches)
     return {
-        "valence": sum(item[0] for item in matches) / count,
-        "arousal": sum(item[1] for item in matches) / count,
-        "dominance": sum(item[2] for item in matches) / count,
+        "valence": max(-1.0, min(1.0, valence / total)),
+        "arousal": max(-1.0, min(1.0, arousal / total)),
+        "dominance": max(-1.0, min(1.0, dominance / total)),
     }

@@ -293,7 +293,7 @@ def main():
         pool_pre_ping=True,
     )
 
-    # We create the six organizer tables plus two application tables first.
+    # We create the six organizer tables plus three application tables first.
     run_schema_scripts(engine)
 
     # We ingest only organizer data required by the dispute workflow.

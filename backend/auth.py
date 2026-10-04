@@ -91,26 +91,56 @@ def _customer_id_from_claims(claims):
     return customer_id
 
 
-def get_current_customer_id(authorization=Header(default=None)):
-    """Return the authenticated customer ID for a protected endpoint."""
+def _country_from_claims(claims):
+    """Resolve the customer country from verified Cognito claims."""
+
+    country = str(claims.get("custom:country") or "").strip()
+
+    if not country:
+        raise HTTPException(
+            status_code=403,
+            detail="Cognito user is not mapped to a country",
+        )
+
+    return country
+
+
+def _claims_from_authorization(authorization):
+    """Return verified Cognito claims from one Authorization header."""
 
     token = _extract_bearer_token(authorization)
 
     try:
-        claims = _decode_token(token)
+        return _decode_token(token)
     except Exception as error:
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired authentication token",
         ) from error
 
+
+def get_current_customer_id(authorization=Header(default=None)):
+    """Return the authenticated customer ID for a protected endpoint."""
+
+    claims = _claims_from_authorization(authorization)
     return _customer_id_from_claims(claims)
 
 
-def get_optional_customer_id(authorization=Header(default=None)):
-    """Return a customer ID when a valid token is present."""
+
+def get_current_customer_context(authorization=Header(default=None)):
+    """Return authenticated customer ID and country."""
+
+    claims = _claims_from_authorization(authorization)
+    return {
+        "customer_id": _customer_id_from_claims(claims),
+        "country": _country_from_claims(claims),
+    }
+
+
+def get_optional_customer_context(authorization=Header(default=None)):
+    """Return customer context when a valid token is present."""
 
     if not authorization:
         return None
 
-    return get_current_customer_id(authorization)
+    return get_current_customer_context(authorization)

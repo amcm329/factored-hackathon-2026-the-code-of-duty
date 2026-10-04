@@ -92,39 +92,3 @@ def sanitize_text(text, language="en"):
         text=text,
         analyzer_results=results,
     ).text
-
-
-def create_alias_map(records, id_field, prefix):
-    """Create short-lived aliases for structured database identifiers.
-
-    Parameters
-    ----------
-    records : list
-        Database records containing the real identifier.
-    id_field : str
-        Field containing the real identifier.
-    prefix : str
-        Prefix used for generated aliases.
-
-    Returns
-    -------
-    tuple
-        Sanitized records and alias-to-real-ID mapping.
-    """
-    alias_map = {}
-    safe_records = []
-
-    for index, record in enumerate(records, start=1):
-        alias = f"{prefix}_{index}"
-        real_id = record[id_field]
-        alias_map[alias] = real_id
-
-        safe_record = {
-            key: value
-            for key, value in record.items()
-            if key != id_field
-        }
-        safe_record["reference"] = alias
-        safe_records.append(safe_record)
-
-    return safe_records, alias_map

@@ -18,11 +18,16 @@ function auth_headers(include_json = true) {
   return headers
 }
 
+async function response_error(response, fallback) {
+  const data = await response.json().catch(() => ({}))
+  return new Error(data.detail || fallback || `Request failed: ${response.status}`)
+}
+
 export async function get_welcome_message(language = 'en') {
   const response = await fetch(`${api_url}/messages/welcome?language=${encodeURIComponent(language)}`)
 
   if (!response.ok) {
-    throw new Error(`Welcome message request failed: ${response.status}`)
+    throw await response_error(response, `Welcome message request failed: ${response.status}`)
   }
 
   return response.json()
@@ -39,7 +44,7 @@ export async function request_evidence_upload(file) {
   })
 
   if (!response.ok) {
-    throw new Error(`Presign request failed: ${response.status}`)
+    throw await response_error(response, `Presign request failed: ${response.status}`)
   }
 
   return response.json()
@@ -63,18 +68,17 @@ export async function upload_evidence_pdf(file, upload) {
   }
 }
 
-export async function process_evidence(evidence_id, language = 'en') {
+export async function process_evidence(evidence_id) {
   const response = await fetch(`${api_url}/evidence/process`, {
     method: 'POST',
     headers: auth_headers(),
     body: JSON.stringify({
       evidence_id,
-      language,
     }),
   })
 
   if (!response.ok) {
-    throw new Error(`Evidence processing failed: ${response.status}`)
+    throw await response_error(response, `Evidence processing failed: ${response.status}`)
   }
 
   return response.json()
@@ -94,7 +98,25 @@ export async function send_chat(message, language = 'en', history = [], evidence
   })
 
   if (!response.ok) {
-    throw new Error(`Chat request failed: ${response.status}`)
+    throw await response_error(response, `Chat request failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export async function send_satisfaction_feedback(interaction_id, feedback, language = 'en') {
+  const response = await fetch(`${api_url}/chat`, {
+    method: 'POST',
+    headers: auth_headers(),
+    body: JSON.stringify({
+      interaction_id,
+      feedback,
+      language,
+    }),
+  })
+
+  if (!response.ok) {
+    throw await response_error(response, `Feedback request failed: ${response.status}`)
   }
 
   return response.json()
@@ -107,7 +129,7 @@ export async function list_transactions() {
   })
 
   if (!response.ok) {
-    throw new Error(`Transaction request failed: ${response.status}`)
+    throw await response_error(response, `Transaction request failed: ${response.status}`)
   }
 
   return response.json()
@@ -121,8 +143,7 @@ export async function create_dispute(payload) {
   })
 
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    throw new Error(data.detail || `Dispute creation failed: ${response.status}`)
+    throw await response_error(response, `Dispute creation failed: ${response.status}`)
   }
 
   return response.json()

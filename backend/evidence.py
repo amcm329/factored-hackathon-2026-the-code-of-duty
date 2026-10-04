@@ -80,7 +80,7 @@ def _extract_pdf_text(pdf_bytes):
     return extracted[:max_extracted_characters]
 
 
-def process_pdf_evidence(customer_id, evidence_id, language="en"):
+def process_pdf_evidence(customer_id, evidence_id):
     """Extract, sanitize, and store customer-owned evidence text."""
 
     record = get_evidence_record(
@@ -103,7 +103,7 @@ def process_pdf_evidence(customer_id, evidence_id, language="en"):
     extracted_text = _extract_pdf_text(response["Body"].read())
     detected_language = detect_language(
         extracted_text,
-        fallback=language,
+        fallback="en",
     )
     safe_text = sanitize_text(
         extracted_text,

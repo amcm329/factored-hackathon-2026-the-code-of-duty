@@ -7,7 +7,6 @@ from backend.evidence import (
     get_sanitized_evidence,
     process_pdf_evidence,
 )
-from backend.retrieval import search_similar_cases
 
 
 app = FastAPI(
@@ -46,7 +45,6 @@ def evidence_process(payload=Body(...), customer_id=Depends(get_current_customer
     """Process one customer-owned PDF."""
 
     evidence_id = payload.get("evidence_id", "").strip()
-    language = payload.get("language", "en")
 
     if not evidence_id:
         raise HTTPException(
@@ -58,7 +56,6 @@ def evidence_process(payload=Body(...), customer_id=Depends(get_current_customer
         return process_pdf_evidence(
             customer_id=customer_id,
             evidence_id=evidence_id,
-            language=language,
         )
     except (LookupError, ValueError) as error:
         raise HTTPException(
@@ -85,32 +82,14 @@ def internal_evidence_read(payload=Body(...)):
         ) from error
 
 
-@app.post("/internal/retrieval/search")
-def internal_retrieval_search(payload=Body(...)):
-    """Run E5 and FAISS similarity search."""
-
-    text = payload.get("text", "").strip()
-    k = min(max(int(payload.get("k", 5)), 1), 20)
-
-    if not text:
-        raise HTTPException(
-            status_code=400,
-            detail="text is required",
-        )
-
-    return {
-        "matches": search_similar_cases(
-            text=text,
-            k=k,
-        )
-    }
-
-
 @app.post("/internal/escalation/predict")
 def internal_escalation_predict(payload=Body(...)):
     """Run VAD extraction and Logistic Regression inference."""
 
     text = payload.get("text", "").strip()
+    language = payload.get("language", "es")
+    country = payload.get("country", "").strip()
+    segment = payload.get("segment", "").strip()
 
     if not text:
         raise HTTPException(
@@ -118,8 +97,19 @@ def internal_escalation_predict(payload=Body(...)):
             detail="text is required",
         )
 
+    if not country or not segment:
+        raise HTTPException(
+            status_code=400,
+            detail="country and segment are required",
+        )
+
     try:
-        return predict_escalation(text)
+        return predict_escalation(
+            text=text,
+            language=language,
+            country=country,
+            segment=segment,
+        )
     except (RuntimeError, ValueError) as error:
         raise HTTPException(
             status_code=422,

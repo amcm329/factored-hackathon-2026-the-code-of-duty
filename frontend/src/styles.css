@@ -347,3 +347,50 @@ body {
 }
 
 .messages { scrollbar-width: thin; scrollbar-color: #aabbd0 #eef3f8; }
+
+.feedback-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.transaction-selection,
+.selected-transaction-action {
+  margin-left: 58px;
+  max-width: 78%;
+  display: grid;
+  gap: 14px;
+}
+
+.transaction-choice {
+  border: 1px solid #d6e2ee;
+  border-radius: 12px;
+  padding: 0 14px 14px;
+  background: #fbfdff;
+}
+
+.transaction-choice .transaction-card,
+.selected-transaction-action .transaction-card {
+  margin-top: 14px;
+}
+
+.transaction-choice > .primary,
+.selected-transaction-action > .primary {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.selection-error {
+  border: 1px solid #e8c7c7;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff7f7;
+  color: #8a2932;
+}
+
+button:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}

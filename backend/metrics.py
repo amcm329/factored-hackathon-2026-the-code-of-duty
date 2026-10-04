@@ -54,3 +54,21 @@ def publish_resolution_metrics(metrics):
         )
     except (BotoCoreError, ClientError):
         logger.exception("CloudWatch metric publication failed")
+
+
+def publish_escalation_recall(recall_value):
+    """Publish held-out escalation recall to CloudWatch."""
+
+    try:
+        cloudwatch.put_metric_data(
+            Namespace=metric_namespace,
+            MetricData=[
+                {
+                    "MetricName": "EscalationRecall",
+                    "Value": float(recall_value),
+                    "Unit": "None",
+                }
+            ],
+        )
+    except (BotoCoreError, ClientError):
+        logger.exception("Escalation recall publication failed")

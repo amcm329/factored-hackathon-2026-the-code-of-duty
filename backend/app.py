@@ -2,24 +2,29 @@ import logging
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 
-from backend.auth import get_current_customer_id, get_optional_customer_id
-from backend.database import (
-    get_customer_transactions,
-    get_dispute_case,
-    get_historical_complaints,
-    get_interaction_metrics,
-    record_interaction_turn,
+from backend.auth import (
+    get_current_customer_context,
+    get_current_customer_id,
+    get_optional_customer_context,
 )
-from backend.disputes import open_dispute
+from backend.database import (
+    create_dispute_case,
+    finalize_interaction_metrics,
+    get_customer_segment,
+    get_customer_transactions,
+    get_historical_complaints,
+    record_interaction_turn,
+    start_interaction_metrics,
+)
 from backend.language import detect_language
 from backend.metrics import publish_resolution_metrics
 from backend.openai_client import generate_reply
 from backend.privacy import sanitize_text
+from backend.retrieval_client import search_similar_cases_retrieval
 from backend.secrets import get_prompt_config
 from backend.worker_client import (
     predict_escalation_worker,
     read_sanitized_evidence,
-    search_similar_cases_worker,
 )
 
 
@@ -30,6 +35,71 @@ app = FastAPI(
     redoc_url=None,
 )
 
+supported_languages = {"en", "es", "pt"}
+personal_dispute_signals = (
+    "i don't recognize",
+    "i do not recognize",
+    "i want to dispute",
+    "i need to dispute",
+    "not my transaction",
+    "not my purchase",
+    "unauthorized transaction",
+    "unauthorised transaction",
+    "unauthorized charge",
+    "unauthorised charge",
+    "my card was charged",
+    "charged my card",
+    "dispute this transaction",
+    "open a dispute",
+    "this transaction isn't mine",
+    "this transaction is not mine",
+    "no reconozco",
+    "quiero disputar",
+    "necesito disputar",
+    "no es mi transacción",
+    "no es mi transaccion",
+    "no es mi compra",
+    "cargo no reconocido",
+    "transacción no reconocida",
+    "transaccion no reconocida",
+    "compra no reconocida",
+    "cargaron mi tarjeta",
+    "me cobraron",
+    "disputar esta transacción",
+    "disputar esta transaccion",
+    "abrir una disputa",
+    "não reconheço",
+    "quero contestar",
+    "preciso contestar",
+    "nao reconheco",
+    "não é minha transação",
+    "nao e minha transacao",
+    "transação não reconhecida",
+    "transacao nao reconhecida",
+    "compra não reconhecida",
+    "compra nao reconhecida",
+    "me cobraram",
+    "cobraram meu cartão",
+    "cobraram meu cartao",
+    "contestar esta transação",
+    "contestar esta transacao",
+    "abrir uma contestação",
+    "abrir uma contestacao",
+)
+
+
+def _normalize_language(language):
+    """Return a supported response language code."""
+
+    normalized = str(language or "").strip().lower()
+    return normalized if normalized in supported_languages else "en"
+
+
+def _is_personal_dispute_message(message):
+    """Detect simple personal transaction-dispute intent without another model."""
+
+    normalized = " ".join(str(message or "").lower().replace("’", "'").split())
+    return any(signal in normalized for signal in personal_dispute_signals)
 
 
 @app.get("/health")
@@ -43,6 +113,7 @@ def health():
 def welcome_message(language=Query(default="en")):
     """Return the configured welcome message."""
 
+    language = _normalize_language(language)
     prompt_config = get_prompt_config()
     return {
         "message": prompt_config["WELCOME_MESSAGE"][language]
@@ -51,7 +122,7 @@ def welcome_message(language=Query(default="en")):
 
 @app.get("/transactions")
 def transactions(customer_id=Depends(get_current_customer_id)):
-    """Return recent transactions for the authenticated customer."""
+    """Return recent transactions for explicit customer selection."""
 
     return {
         "transactions": get_customer_transactions(customer_id)
@@ -59,13 +130,16 @@ def transactions(customer_id=Depends(get_current_customer_id)):
 
 
 @app.post("/disputes")
-def create_dispute(payload=Body(...), customer_id=Depends(get_current_customer_id)):
-    """Create a finalized dispute using Worker EC2 escalation inference."""
+def create_dispute(payload=Body(...), customer_context=Depends(get_current_customer_context)):
+    """Create one dispute after explicit transaction selection and model inference."""
 
+    customer_id = customer_context["customer_id"]
+    country = customer_context["country"]
     transaction_id = payload.get("transaction_id", "").strip()
     reason = payload.get("reason", "").strip()
-    language = payload.get("language", "en")
+    language = _normalize_language(payload.get("language", "en"))
     interaction_id = payload.get("interaction_id", "").strip()
+    evidence_ids = payload.get("evidence_ids", []) or []
 
     if not interaction_id:
         raise HTTPException(
@@ -79,6 +153,12 @@ def create_dispute(payload=Body(...), customer_id=Depends(get_current_customer_i
             detail="transaction_id and reason are required",
         )
 
+    if not isinstance(evidence_ids, list) or len(evidence_ids) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="evidence_ids must contain at most three items",
+        )
+
     reason_language = detect_language(
         reason,
         fallback=language,
@@ -89,17 +169,29 @@ def create_dispute(payload=Body(...), customer_id=Depends(get_current_customer_i
     )
 
     try:
-        prediction = predict_escalation_worker(safe_reason)
-        dispute = open_dispute(
+        segment = get_customer_segment(customer_id)
+        prediction = predict_escalation_worker(
+            text=safe_reason,
+            language=reason_language,
+            country=country,
+            segment=segment,
+        )
+        dispute = create_dispute_case(
             customer_id=customer_id,
             transaction_id=transaction_id,
             reason=safe_reason,
             escalation_probability=prediction["escalation_probability"],
             requires_human_review=prediction["requires_human_review"],
+            evidence_ids=evidence_ids,
         )
     except LookupError as error:
         raise HTTPException(
             status_code=404,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
             detail=str(error),
         ) from error
     except Exception as error:
@@ -108,58 +200,36 @@ def create_dispute(payload=Body(...), customer_id=Depends(get_current_customer_i
             detail=get_prompt_config()["FAILURE_MESSAGE"][language],
         ) from error
 
-    successful_automated_resolution = dispute["status"] == "RESOLVED"
-
     try:
-        final_metrics = get_interaction_metrics(interaction_id)
-
-        if final_metrics is not None:
-            final_metrics["successful_automated_resolution"] = successful_automated_resolution
-            publish_resolution_metrics(final_metrics)
+        final_metrics = finalize_interaction_metrics(
+            interaction_id=interaction_id,
+            successful_automated_resolution=False,
+        )
+        publish_resolution_metrics(final_metrics)
     except Exception:
         logger.exception("Interaction metric publication failed")
 
     response = None
-    interaction_finished = False
 
     if dispute["status"] == "ESCALATED":
         response = get_prompt_config()["ESCALATION_MESSAGE"][language]
-        interaction_finished = True
 
     return {
         "dispute": dispute,
         "response": response,
-        "interaction_finished": interaction_finished,
+        "interaction_finished": True,
     }
 
 
-@app.get("/disputes/{dispute_id}")
-def dispute_status(dispute_id, customer_id=Depends(get_current_customer_id)):
-    """Return one dispute owned by the authenticated customer."""
-
-    dispute = get_dispute_case(
-        customer_id=customer_id,
-        dispute_id=dispute_id,
-    )
-
-    if dispute is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Dispute not found",
-        )
-
-    return {"dispute": dispute}
-
-
 @app.post("/chat")
-def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
-    """Generate an OpenAI response using sanitized worker-hosted context."""
+def chat(payload=Body(...), customer_context=Depends(get_optional_customer_context)):
+    """Generate chat responses and deterministic satisfaction feedback handling."""
 
-    message = payload.get("message", "").strip()
-    language = payload.get("language", "en")
-    history = payload.get("history", [])
-    evidence_ids = payload.get("evidence_ids", [])
+    customer_id = customer_context["customer_id"] if customer_context else None
+    country = customer_context["country"] if customer_context else None
+    language = _normalize_language(payload.get("language", "en"))
     interaction_id = payload.get("interaction_id", "").strip()
+    feedback = str(payload.get("feedback", "")).strip().lower()
 
     if not interaction_id:
         raise HTTPException(
@@ -167,10 +237,57 @@ def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
             detail="interaction_id is required",
         )
 
+    if feedback:
+        if feedback not in {"yes", "no"}:
+            raise HTTPException(
+                status_code=400,
+                detail="feedback must be yes or no",
+            )
+
+        if not customer_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication is required to submit dispute feedback",
+            )
+
+        if feedback == "yes":
+            try:
+                final_metrics = finalize_interaction_metrics(
+                    interaction_id=interaction_id,
+                    successful_automated_resolution=True,
+                )
+                publish_resolution_metrics(final_metrics)
+            except Exception:
+                logger.exception("Interaction metric publication failed")
+
+            return {
+                "response": None,
+                "interaction_finished": True,
+                "needs_transaction_selection": False,
+                "successful_automated_resolution": True,
+            }
+
+        return {
+            "response": None,
+            "interaction_finished": False,
+            "needs_transaction_selection": True,
+            "successful_automated_resolution": False,
+        }
+
+    message = payload.get("message", "").strip()
+    history = payload.get("history", [])
+    evidence_ids = payload.get("evidence_ids", []) or []
+
     if not message:
         raise HTTPException(
             status_code=400,
             detail="message is required",
+        )
+
+    if not isinstance(evidence_ids, list) or len(evidence_ids) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="evidence_ids must contain at most three items",
         )
 
     if evidence_ids and not customer_id:
@@ -178,6 +295,22 @@ def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
             status_code=401,
             detail="Authentication is required to use evidence",
         )
+
+    try:
+        start_interaction_metrics(interaction_id)
+    except Exception:
+        logger.exception("Interaction metric start failed")
+
+    personal_dispute = _is_personal_dispute_message(message)
+
+    if personal_dispute and not customer_id:
+        return {
+            "response": None,
+            "authentication_required": True,
+            "personal_dispute": True,
+            "needs_satisfaction_feedback": False,
+            "needs_transaction_selection": False,
+        }
 
     message_language = detect_language(
         message,
@@ -187,43 +320,58 @@ def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
         message,
         message_language,
     )
-    retrieval_texts = [safe_message]
     evidence_context = []
 
     try:
-        for evidence_id in evidence_ids[:3]:
+        for evidence_id in evidence_ids:
             safe_text = read_sanitized_evidence(
                 evidence_id=evidence_id,
                 customer_id=customer_id,
             )
             evidence_context.append(safe_text)
-            retrieval_texts.append(safe_text)
-
-        matches_by_id = {}
-
-        for retrieval_text in retrieval_texts:
-            for match in search_similar_cases_worker(
-                retrieval_text,
-                k=5,
-            ):
-                complaint_id = match["complaint_id"]
-                previous = matches_by_id.get(complaint_id)
-
-                if previous is None or match["score"] > previous["score"]:
-                    matches_by_id[complaint_id] = match
     except Exception as error:
         raise HTTPException(
             status_code=502,
             detail=get_prompt_config()["FAILURE_MESSAGE"][language],
         ) from error
 
-    similar_matches = sorted(
-        matches_by_id.values(),
-        key=lambda item: item["score"],
-        reverse=True,
-    )[:5]
-    complaint_rows = get_historical_complaints(
-        [item["complaint_id"] for item in similar_matches]
+    similar_matches = []
+
+    if personal_dispute and country:
+        retrieval_texts = [safe_message] + evidence_context
+        matches_by_id = {}
+
+        try:
+            for retrieval_text in retrieval_texts:
+                for match in search_similar_cases_retrieval(
+                    text=retrieval_text,
+                    country=country,
+                    k=5,
+                ):
+                    complaint_id = match["complaint_id"]
+                    previous = matches_by_id.get(complaint_id)
+
+                    if previous is None or match["score"] > previous["score"]:
+                        matches_by_id[complaint_id] = match
+        except Exception as error:
+            raise HTTPException(
+                status_code=502,
+                detail=get_prompt_config()["FAILURE_MESSAGE"][language],
+            ) from error
+
+        similar_matches = sorted(
+            matches_by_id.values(),
+            key=lambda item: item["score"],
+            reverse=True,
+        )[:5]
+
+    complaint_rows = (
+        get_historical_complaints(
+            [item["complaint_id"] for item in similar_matches],
+            country,
+        )
+        if country and similar_matches
+        else []
     )
     complaints_by_id = {
         row["complaint_id"]: row
@@ -266,6 +414,15 @@ def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
             }
         )
 
+    if personal_dispute and customer_id and not similar_cases:
+        return {
+            "response": None,
+            "personal_dispute": True,
+            "needs_satisfaction_feedback": False,
+            "needs_transaction_selection": True,
+            "retrieval_used": False,
+        }
+
     reply = generate_reply(
         message=safe_message,
         language=language,
@@ -282,6 +439,14 @@ def chat(payload=Body(...), customer_id=Depends(get_optional_customer_id)):
     except Exception:
         logger.exception("Interaction metric persistence failed")
 
+    retrieval_used = bool(similar_cases)
     return {
-        "response": reply["response"]
+        "response": reply["response"],
+        "personal_dispute": personal_dispute,
+        "retrieval_used": retrieval_used,
+        "needs_satisfaction_feedback": bool(
+            personal_dispute and customer_id and retrieval_used
+        ),
+        "needs_transaction_selection": False,
+        "authentication_required": False,
     }

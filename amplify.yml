@@ -9,7 +9,9 @@ applications:
           commands:
             - nvm install 22
             - nvm use 22
-            - npm install
+            - rm -rf node_modules
+            - npm ci --include=optional
+            - npm install --no-save --package-lock=false @rolldown/binding-linux-x64-gnu@1.2.11
 
         build:
           commands:
@@ -19,7 +21,3 @@ applications:
         baseDirectory: dist
         files:
           - '**/*'
-
-      cache:
-        paths:
-          - node_modules/**/*

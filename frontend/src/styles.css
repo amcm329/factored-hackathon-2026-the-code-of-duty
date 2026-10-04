@@ -7,12 +7,13 @@
 }
 
 * { box-sizing: border-box; }
-html, body, #root { min-height: 100%; margin: 0; }
+html, body, #root { min-height: 100%; margin: 0; width: 100%; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 
 body {
-  min-width: 1120px;
+  min-width: 0;
+  overflow-x: hidden;
   background: linear-gradient(180deg, #f7fbff 0%, #eef5fb 100%);
 }
 
@@ -320,11 +321,152 @@ body {
 .login-error { color: #b42318; background: #fff0ee; border: 1px solid #ffd0ca; padding: 10px 12px; border-radius: 9px; font-size: 14px; }
 .login-actions { display: grid; grid-template-columns: 1fr 1.35fr; gap: 12px; }
 @media (max-width: 1250px) {
-  body { min-width: 980px; }
   .app-shell { grid-template-columns: 220px minmax(0, 1fr); }
-  .content-grid { grid-template-columns: minmax(560px, 1fr) 310px; }
+  .content-grid { grid-template-columns: minmax(0, 1fr) 310px; }
   .assistant-heading h1 { font-size: 27px; }
   .assistant-heading p { font-size: 17px; }
+  .topbar { padding: 0 24px; }
+}
+
+@media (max-width: 1050px) {
+  .app-shell { display: block; }
+  .sidebar {
+    min-height: auto;
+    padding: 14px 20px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  .brand-logo { max-width: 150px; }
+  .nav-list { margin-top: 0; display: block; }
+  .nav-item { height: 46px; padding: 0 16px; gap: 10px; font-size: 15px; }
+  .topbar {
+    height: auto;
+    min-height: 104px;
+    padding: 16px 20px;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .assistant-icon { width: 62px; height: 62px; border-radius: 14px; }
+  .assistant-icon img { width: 50px; height: 50px; }
+  .assistant-heading h1 { font-size: 25px; }
+  .assistant-heading p { font-size: 16px; }
+  .topbar-actions { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+  .content-grid {
+    grid-template-columns: 1fr;
+    min-height: 0;
+    padding: 16px;
+  }
+  .chat-panel {
+    height: calc(100dvh - 180px);
+    min-height: 560px;
+    max-height: none;
+  }
+  .details-panel { min-height: auto; }
+}
+
+@media (max-width: 700px) {
+  .sidebar { padding: 10px 12px; }
+  .brand-logo { max-width: 122px; }
+  .nav-item { height: 42px; padding: 0 12px; font-size: 14px; }
+  .nav-item svg { width: 20px; height: 20px; }
+  .topbar {
+    align-items: flex-start;
+    padding: 14px 12px;
+  }
+  .assistant-heading { gap: 10px; width: 100%; }
+  .assistant-icon { width: 50px; height: 50px; flex: 0 0 auto; }
+  .assistant-icon img { width: 40px; height: 40px; }
+  .assistant-heading h1 { font-size: 21px; letter-spacing: -.5px; }
+  .assistant-heading p { font-size: 14px; }
+  .topbar-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .topbar-separator { display: none; }
+  .language-select-wrap { height: 40px; }
+  .language-select-wrap select { max-width: 118px; }
+  .user-avatar { width: 40px; height: 40px; font-size: 14px; }
+  .signed-in { min-width: 0; flex: 1; }
+  .signed-in strong {
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .header-signin { margin-left: auto; }
+  .content-grid { padding: 10px; gap: 10px; }
+  .chat-panel {
+    height: calc(100dvh - 245px);
+    min-height: 500px;
+    padding: 16px 12px 12px;
+    border-radius: 12px;
+  }
+  .messages { gap: 16px; padding: 4px 2px 16px; scrollbar-gutter: auto; }
+  .message-row { gap: 8px; }
+  .message-stack { max-width: calc(100% - 48px); }
+  .message-bubble { padding: 13px 15px; font-size: 16px; line-height: 1.45; }
+  .message-time { font-size: 12px; margin-top: 5px; }
+  .bot-avatar, .user-mini-avatar { width: 38px; height: 38px; }
+  .bot-avatar img { width: 29px; height: 29px; }
+  .transaction-selection,
+  .selected-transaction-action {
+    margin-left: 46px;
+    max-width: calc(100% - 46px);
+  }
+  .transaction-card {
+    min-height: 0;
+    padding: 14px;
+    gap: 14px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .transaction-card-left { gap: 12px; width: 100%; }
+  .transaction-card-right { text-align: left; padding-left: 54px; }
+  .transaction-card strong { font-size: 17px; }
+  .merchant-icon { width: 42px; height: 42px; flex: 0 0 auto; }
+  .transaction-actions,
+  .feedback-actions,
+  .login-actions { grid-template-columns: 1fr; }
+  .composer { min-height: 66px; padding: 8px; gap: 6px; }
+  .composer textarea { font-size: 16px; min-width: 0; }
+  .attach-button { width: 32px; }
+  .send-button { width: 48px; height: 48px; }
+  .details-panel { padding: 20px 16px; }
+  .details-panel h2 { font-size: 20px; margin-bottom: 18px; }
+  .merchant-summary { gap: 12px; padding-bottom: 18px; }
+  .merchant-summary strong, .detail-copy strong { font-size: 17px; overflow-wrap: anywhere; }
+  .merchant-icon.large { width: 50px; height: 50px; }
+  .detail-row { grid-template-columns: 34px 1fr; padding: 18px 0; }
+  .locked-details { min-height: 250px; padding: 28px 18px; }
+  .login-modal {
+    width: min(100%, 500px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    padding: 24px 18px;
+  }
+  .modal-backdrop { padding: 12px; }
+}
+
+@media (max-width: 430px) {
+  .sidebar { gap: 8px; }
+  .brand-logo { max-width: 108px; }
+  .nav-item { padding: 0 9px; gap: 7px; }
+  .topbar-actions { align-items: center; }
+  .signed-in span { font-size: 11px; }
+  .signed-in strong { font-size: 13px; max-width: 92px; }
+  .header-signin { padding: 0 10px; font-size: 13px; }
+  .chat-panel { min-height: 470px; }
+  .message-stack { max-width: calc(100% - 42px); }
+  .transaction-selection,
+  .selected-transaction-action {
+    margin-left: 0;
+    max-width: 100%;
+  }
+  .transaction-card-right { padding-left: 0; }
 }
 
 .validated-badge {

@@ -40,57 +40,6 @@ import {
 const language_storage_key = 'factored_language'
 const max_evidence_files = 3
 
-const personal_dispute_signals = [
-  "i don't recognize",
-  'i do not recognize',
-  'i want to dispute',
-  'i need to dispute',
-  'not my transaction',
-  'not my purchase',
-  'unauthorized transaction',
-  'unauthorised transaction',
-  'unauthorized charge',
-  'unauthorised charge',
-  'my card was charged',
-  'charged my card',
-  'dispute this transaction',
-  'open a dispute',
-  "this transaction isn't mine",
-  'this transaction is not mine',
-  'no reconozco',
-  'quiero disputar',
-  'necesito disputar',
-  'no es mi transacción',
-  'no es mi transaccion',
-  'no es mi compra',
-  'cargo no reconocido',
-  'transacción no reconocida',
-  'transaccion no reconocida',
-  'compra no reconocida',
-  'cargaron mi tarjeta',
-  'me cobraron',
-  'disputar esta transacción',
-  'disputar esta transaccion',
-  'abrir una disputa',
-  'não reconheço',
-  'quero contestar',
-  'preciso contestar',
-  'nao reconheco',
-  'não é minha transação',
-  'nao e minha transacao',
-  'transação não reconhecida',
-  'transacao nao reconhecida',
-  'compra não reconhecida',
-  'compra nao reconhecida',
-  'me cobraram',
-  'cobraram meu cartão',
-  'cobraram meu cartao',
-  'contestar esta transação',
-  'contestar esta transacao',
-  'abrir uma contestação',
-  'abrir uma contestacao',
-]
-
 const copy = {
   en: {
     title: 'Hermes',
@@ -206,11 +155,6 @@ const copy = {
     evidenceLimit: 'Você pode anexar até três arquivos PDF como evidência.',
     requestFailed: 'Não foi possível concluir a solicitação. Tente novamente.',
   },
-}
-
-function looksPersonalDispute(value) {
-  const normalized = String(value || '').toLowerCase().replace(/’/g, "'").replace(/\s+/g, ' ').trim()
-  return personal_dispute_signals.some((signal) => normalized.includes(signal))
 }
 
 function Brand() {
@@ -603,12 +547,6 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
     const history = currentHistory()
     addUser(value)
     setInput('')
-
-    if (!authenticated && looksPersonalDispute(value)) {
-      setPendingLoginRequest({ message: value, history })
-      onRequireLogin()
-      return
-    }
 
     await processChatMessage(value, history)
   }

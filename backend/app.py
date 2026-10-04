@@ -87,6 +87,84 @@ personal_dispute_signals = (
     "abrir uma contestacao",
 )
 
+personal_request_signals = (
+    "help me",
+    "help with",
+    "i need help",
+    "i have",
+    "i want",
+    "can you help me",
+    "ayúdame",
+    "ayudame",
+    "ayuda con",
+    "necesito ayuda",
+    "tengo",
+    "quiero",
+    "pode me ajudar",
+    "me ajude",
+    "ajuda com",
+    "preciso de ajuda",
+    "tenho",
+    "quero",
+)
+
+dispute_topic_signals = (
+    "dispute",
+    "disputed",
+    "charge",
+    "transaction",
+    "withdrawal",
+    "transfer",
+    "direct debit",
+    "purchase",
+    "disputa",
+    "disputar",
+    "cargo",
+    "transacción",
+    "transaccion",
+    "retiro",
+    "transferencia",
+    "débito",
+    "debito",
+    "compra",
+    "contestação",
+    "contestacao",
+    "contestar",
+    "cobrança",
+    "cobranca",
+    "transação",
+    "transacao",
+    "saque",
+    "transferência",
+    "transferencia",
+    "débito direto",
+    "debito direto",
+)
+
+general_information_signals = (
+    "what is",
+    "what are",
+    "what does",
+    "how does",
+    "how do",
+    "explain",
+    "tell me about",
+    "qué es",
+    "que es",
+    "qué son",
+    "que son",
+    "cómo funciona",
+    "como funciona",
+    "explícame",
+    "explicame",
+    "o que é",
+    "o que e",
+    "o que são",
+    "o que sao",
+    "como funciona",
+    "explique",
+)
+
 
 def _normalize_language(language):
     """Return a supported response language code."""
@@ -96,10 +174,19 @@ def _normalize_language(language):
 
 
 def _is_personal_dispute_message(message):
-    """Detect simple personal transaction-dispute intent without another model."""
+    """Detect personal dispute intent without another model."""
 
     normalized = " ".join(str(message or "").lower().replace("’", "'").split())
-    return any(signal in normalized for signal in personal_dispute_signals)
+
+    if any(normalized.startswith(signal) for signal in general_information_signals):
+        return False
+
+    if any(signal in normalized for signal in personal_dispute_signals):
+        return True
+
+    has_personal_request = any(signal in normalized for signal in personal_request_signals)
+    has_dispute_topic = any(signal in normalized for signal in dispute_topic_signals)
+    return has_personal_request and has_dispute_topic
 
 
 @app.get("/health")
@@ -353,6 +440,13 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
 
                     if previous is None or match["score"] > previous["score"]:
                         matches_by_id[complaint_id] = match
+        except RuntimeError as error:
+            if "RETRIEVAL_BASE_URL is not configured" not in str(error):
+                raise HTTPException(
+                    status_code=502,
+                    detail=get_prompt_config()["FAILURE_MESSAGE"][language],
+                ) from error
+            similar_matches = []
         except Exception as error:
             raise HTTPException(
                 status_code=502,

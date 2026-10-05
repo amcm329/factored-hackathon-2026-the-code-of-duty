@@ -334,14 +334,16 @@ function LandingPage({ t, language, onLanguage, authenticated, customerId, onLog
             <span>{t.landingGrounding}</span>
             <span>{t.landingHandoff}</span>
           </div>
-          <button className="landing-enter" type="button" onClick={onEnter}>{t.enterHermes}</button>
           <p className="landing-myth">{t.landingMyth}</p>
         </section>
 
-        <section className="landing-symbol" aria-label="Hermes symbol">
-          <div className="landing-orbit orbit-one" />
-          <div className="landing-orbit orbit-two" />
-          <img src={hermesIcon} alt="" />
+        <section className="landing-action" aria-label="Hermes symbol and entry action">
+          <div className="landing-symbol">
+            <div className="landing-orbit orbit-one" />
+            <div className="landing-orbit orbit-two" />
+            <img src={hermesIcon} alt="" />
+          </div>
+          <button className="landing-enter" type="button" onClick={onEnter}>{t.enterHermes}</button>
         </section>
       </main>
     </div>

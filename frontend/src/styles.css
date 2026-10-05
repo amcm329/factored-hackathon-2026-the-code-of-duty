@@ -608,3 +608,235 @@ textarea:disabled {
     max-height: none;
   }
 }
+
+/* Hermes 2026 visual system: poster-inspired landing, operational workspace */
+:root {
+  --hermes-navy: #0b1024;
+  --hermes-navy-2: #111831;
+  --hermes-gold: #d7ae4c;
+  --hermes-gold-soft: #ead28a;
+  --hermes-ivory: #f5efe1;
+  --hermes-ink: #18203a;
+}
+
+.landing-page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  color: var(--hermes-ivory);
+  background:
+    radial-gradient(circle at 74% 36%, rgba(215,174,76,.09), transparent 30%),
+    radial-gradient(circle at 14% 88%, rgba(80,98,155,.13), transparent 30%),
+    linear-gradient(135deg, #090e20 0%, #0b1024 48%, #10172d 100%);
+}
+.landing-stars,
+.landing-stars::before,
+.landing-stars::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+}
+.landing-stars {
+  opacity: .58;
+  background-image:
+    radial-gradient(circle at 8% 11%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 20% 27%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 37% 14%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 51% 31%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 64% 9%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 78% 22%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 91% 13%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 12% 61%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 31% 72%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 58% 69%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 84% 75%, #f7efd9 0 1px, transparent 1.5px),
+    radial-gradient(circle at 95% 55%, #f7efd9 0 1px, transparent 1.5px);
+  background-size: 240px 210px;
+}
+.landing-header {
+  position: relative;
+  z-index: 2;
+  min-height: 106px;
+  padding: 22px 4.5vw;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid rgba(215,174,76,.16);
+}
+.landing-wordmark { width: 235px; max-width: 42vw; height: auto; display: block; }
+.landing-header-actions { display: flex; align-items: center; gap: 12px; }
+.landing-header .language-select-wrap {
+  border-color: rgba(215,174,76,.35);
+  background: rgba(8,14,32,.65);
+  color: var(--hermes-ivory);
+}
+.landing-header .language-select-wrap select { color: var(--hermes-ivory); }
+.landing-header .language-select-wrap option { color: #111831; }
+.landing-link {
+  min-height: 42px;
+  border: 1px solid rgba(215,174,76,.55);
+  border-radius: 999px;
+  padding: 0 18px;
+  color: var(--hermes-gold-soft);
+  background: transparent;
+  font-weight: 700;
+}
+.landing-user { color: #d8dce8; font-size: 14px; font-weight: 700; }
+.landing-hero {
+  position: relative;
+  z-index: 1;
+  width: min(1500px, 92vw);
+  min-height: calc(100vh - 106px);
+  margin: 0 auto;
+  padding: 5vh 0 7vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(430px, .95fr);
+  align-items: center;
+  gap: 5vw;
+}
+.landing-copy { max-width: 760px; }
+.landing-eyebrow {
+  margin-bottom: 34px;
+  color: var(--hermes-gold);
+  font-size: 12px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+.landing-copy h1 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(72px, 9vw, 145px);
+  font-weight: 400;
+  letter-spacing: .055em;
+  line-height: .9;
+}
+.landing-motto {
+  margin: 32px 0 26px;
+  color: #f2e7cf;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(27px, 3vw, 43px);
+  line-height: 1.08;
+}
+.landing-motto em { font-weight: 400; }
+.landing-body {
+  max-width: 670px;
+  margin: 0;
+  color: #b7c2d7;
+  font-size: clamp(17px, 1.45vw, 22px);
+  line-height: 1.65;
+}
+.landing-points { display: flex; flex-wrap: wrap; gap: 10px; margin: 30px 0 28px; }
+.landing-points span {
+  border: 1px solid rgba(215,174,76,.35);
+  border-radius: 999px;
+  padding: 9px 13px;
+  color: #d7dce8;
+  background: rgba(255,255,255,.025);
+  font-size: 13px;
+}
+.landing-enter {
+  min-width: 210px;
+  min-height: 54px;
+  border: 1px solid var(--hermes-gold);
+  border-radius: 8px;
+  color: #0b1024;
+  background: linear-gradient(135deg, #efd276, #c99f3f);
+  font-weight: 800;
+  letter-spacing: .04em;
+  box-shadow: 0 14px 34px rgba(215,174,76,.14);
+}
+.landing-myth {
+  max-width: 650px;
+  margin: 38px 0 0;
+  color: #8f9ab2;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.landing-symbol {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+}
+.landing-symbol img {
+  position: relative;
+  z-index: 3;
+  width: 45%;
+  min-width: 220px;
+  border-radius: 24%;
+  box-shadow: 0 25px 70px rgba(0,0,0,.28);
+}
+.landing-orbit { position: absolute; border: 1px solid rgba(215,174,76,.67); border-radius: 50%; }
+.orbit-one { width: 84%; height: 84%; }
+.orbit-two { width: 66%; height: 66%; border-color: rgba(215,174,76,.28); }
+
+/* Operational workspace keeps the visual identity without sacrificing clarity. */
+body { background: #f3f0e8; }
+.sidebar { background: linear-gradient(180deg, #0b1024 0%, #111831 100%); }
+.brand-logo { border-radius: 8px; }
+.nav-item.active {
+  background: rgba(215,174,76,.13);
+  color: var(--hermes-gold-soft);
+  box-shadow: inset 4px 0 0 var(--hermes-gold);
+}
+.topbar { background: rgba(250,248,242,.97); border-bottom-color: #dfd8c6; }
+.assistant-icon { background: #0b1024; border: 1px solid rgba(215,174,76,.4); }
+.assistant-icon img { width: 70px; height: 70px; }
+.assistant-heading h1 { font-family: Georgia, 'Times New Roman', serif; letter-spacing: .02em; }
+.assistant-heading p { color: #6f7890; }
+.language-select-wrap { border-color: #d8d0bc; background: #fffef9; }
+.user-avatar, .user-mini-avatar { background: #141d38; }
+.header-signin { border-color: #b68b31; color: #85651f; background: #fffdf7; }
+.content-grid { background: linear-gradient(180deg, #f7f4ed 0%, #efebe1 100%); }
+.chat-panel, .details-panel { border-color: #ded7c7; box-shadow: 0 10px 34px rgba(31, 36, 51, .055); }
+.message-bubble.user { background: #ece8dc; }
+.message-bubble.bot { background: #f3f1eb; }
+.bot-avatar { background: #0b1024; border: 1px solid rgba(215,174,76,.35); }
+.bot-avatar img { width: 36px; height: 36px; }
+.primary { color: #0b1024; background: linear-gradient(135deg, #e8c765, #cba140); }
+.secondary { border-color: #baa05f; color: #715820; background: #fffdf8; }
+.send-button { background: #111831; border: 1px solid rgba(215,174,76,.55); }
+.transaction-card { border-color: #d8cfbb; background: #fffdf8; }
+.merchant-icon { background: #f2ead7; color: #8a6826; }
+.validated-badge { color: #7b5c1b; background: #f3e6bd; border-color: #e3cd85; }
+.history-item { border-color: #ddd4c1; background: #fffdf8; }
+.history-item-head span { background: #edf5ec; color: #17693a; }
+
+.linked-transaction-block { margin-top: 18px; }
+.linked-transaction-block h3,
+.handoff-section h3 { margin: 0 0 10px; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; color: #7b6742; }
+.handoff-panel { overflow-y: auto; }
+.handoff-kicker {
+  display: inline-flex;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #e8f3ea;
+  color: #17693a;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.handoff-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid #e1dacb; }
+.handoff-section ul { margin: 0; padding-left: 20px; color: #4d576e; line-height: 1.55; }
+.handoff-row { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid #eee8dc; }
+.handoff-row span { color: #7d8799; text-transform: capitalize; }
+.handoff-row b { overflow-wrap: anywhere; }
+
+@media (max-width: 980px) {
+  .landing-hero { grid-template-columns: 1fr; padding-top: 7vh; }
+  .landing-symbol { min-height: 460px; }
+  .landing-symbol img { width: 250px; min-width: 0; }
+}
+@media (max-width: 700px) {
+  .landing-header { padding: 14px 18px; flex-wrap: wrap; }
+  .landing-wordmark { width: 185px; }
+  .landing-header-actions { width: 100%; justify-content: space-between; }
+  .landing-hero { width: min(92vw, 620px); min-height: auto; }
+  .landing-copy h1 { font-size: 64px; }
+  .landing-symbol { min-height: 330px; }
+  .landing-symbol img { width: 190px; }
+}

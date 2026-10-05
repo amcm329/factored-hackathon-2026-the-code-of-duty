@@ -17,8 +17,8 @@ import {
   WalletCards,
 } from 'lucide-react'
 import './styles.css'
-import hermesLogo from './assets/hermes-logo.png'
-import hermesIcon from './assets/hermes-icon.png'
+import hermesLogo from './assets/hermes-logo.svg'
+import hermesIcon from './assets/hermes-icon.svg'
 import {
   create_dispute,
   get_welcome_message,
@@ -140,6 +140,20 @@ const copy = {
     noHistory: 'No records found.',
     status: 'Status',
     caseId: 'Case ID',
+    landingEyebrow: 'THE CODE OF DUTY · FACTORED AI & DATA HACKATHON',
+    landingLine1: 'Every message arrives.',
+    landingLine2: 'No secret crosses.',
+    landingBody: 'AI-assisted transaction dispute support with grounded answers, controlled automation, and human review when needed.',
+    enterHermes: 'Enter Hermes',
+    landingSecurity: 'Private by design',
+    landingGrounding: 'Grounded in verified records',
+    landingHandoff: 'Human review when needed',
+    handoffTitle: 'Human review handoff',
+    verifiedFacts: 'Verified facts',
+    actionsTaken: 'Actions taken',
+    unresolvedQuestions: 'Unresolved questions',
+    linkedTransaction: 'Linked transaction',
+    disputeDetailsTitle: 'Dispute details',
   },
   es: {
     title: 'Hermes',
@@ -185,6 +199,20 @@ const copy = {
     noHistory: 'No se encontraron registros.',
     status: 'Estado',
     caseId: 'ID del caso',
+    landingEyebrow: 'THE CODE OF DUTY · FACTORED AI & DATA HACKATHON',
+    landingLine1: 'Cada mensaje llega.',
+    landingLine2: 'Ningún secreto cruza.',
+    landingBody: 'Asistencia con disputas de transacciones mediante respuestas fundamentadas, automatización controlada y revisión humana cuando se necesita.',
+    enterHermes: 'Entrar a Hermes',
+    landingSecurity: 'Privacidad por diseño',
+    landingGrounding: 'Basado en registros verificados',
+    landingHandoff: 'Revisión humana cuando se necesita',
+    handoffTitle: 'Transferencia para revisión humana',
+    verifiedFacts: 'Hechos verificados',
+    actionsTaken: 'Acciones realizadas',
+    unresolvedQuestions: 'Preguntas pendientes',
+    linkedTransaction: 'Transacción vinculada',
+    disputeDetailsTitle: 'Detalles de la disputa',
   },
   pt: {
     title: 'Hermes',
@@ -230,6 +258,20 @@ const copy = {
     noHistory: 'Nenhum registro encontrado.',
     status: 'Status',
     caseId: 'ID do caso',
+    landingEyebrow: 'THE CODE OF DUTY · FACTORED AI & DATA HACKATHON',
+    landingLine1: 'Toda mensagem chega.',
+    landingLine2: 'Nenhum segredo atravessa.',
+    landingBody: 'Suporte a contestações de transações com respostas fundamentadas, automação controlada e revisão humana quando necessária.',
+    enterHermes: 'Entrar no Hermes',
+    landingSecurity: 'Privacidade por design',
+    landingGrounding: 'Baseado em registros verificados',
+    landingHandoff: 'Revisão humana quando necessária',
+    handoffTitle: 'Transferência para revisão humana',
+    verifiedFacts: 'Fatos verificados',
+    actionsTaken: 'Ações realizadas',
+    unresolvedQuestions: 'Questões pendentes',
+    linkedTransaction: 'Transação vinculada',
+    disputeDetailsTitle: 'Detalhes da contestação',
   },
 }
 
@@ -256,6 +298,50 @@ function LanguageSelect({ language, onChange }) {
         <option value="pt">PT — Português</option>
       </select>
       <ChevronDown size={15} className="select-chevron" />
+    </div>
+  )
+}
+
+function LandingPage({ t, language, onLanguage, authenticated, customerId, onLogin, onLogout, onEnter }) {
+  return (
+    <div className="landing-page">
+      <div className="landing-stars" aria-hidden="true" />
+      <header className="landing-header">
+        <img src={hermesLogo} className="landing-wordmark" alt="Hermes" />
+        <div className="landing-header-actions">
+          <LanguageSelect language={language} onChange={onLanguage} />
+          {authenticated ? (
+            <>
+              <span className="landing-user">{customerId}</span>
+              <button className="landing-link" type="button" onClick={onLogout}>{t.logout}</button>
+            </>
+          ) : (
+            <button className="landing-link" type="button" onClick={onLogin}>{t.signIn}</button>
+          )}
+        </div>
+      </header>
+
+      <main className="landing-hero">
+        <section className="landing-copy">
+          <div className="landing-eyebrow">{t.landingEyebrow}</div>
+          <h1>HERMES</h1>
+          <p className="landing-motto"><em>{t.landingLine1}</em><br /><em>{t.landingLine2}</em></p>
+          <p className="landing-body">{t.landingBody}</p>
+          <div className="landing-points">
+            <span>{t.landingSecurity}</span>
+            <span>{t.landingGrounding}</span>
+            <span>{t.landingHandoff}</span>
+          </div>
+          <button className="landing-enter" type="button" onClick={onEnter}>{t.enterHermes}</button>
+          <p className="landing-myth">In Greek myth, Hermes carried messages between worlds. This Hermes carries verified intent between a bank and its customers.</p>
+        </section>
+
+        <section className="landing-symbol" aria-label="Hermes symbol">
+          <div className="landing-orbit orbit-one" />
+          <div className="landing-orbit orbit-two" />
+          <img src={hermesIcon} alt="" />
+        </section>
+      </main>
     </div>
   )
 }
@@ -449,10 +535,11 @@ function CaseHistoryPanel({ t, items }) {
   )
 }
 
-function CaseDetailPanel({ t, item }) {
+function CaseDetailPanel({ t, item, linkedTransaction }) {
   const rawDate = item?.case_date ? new Date(item.case_date) : null
   const dateText = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toLocaleDateString() : ''
   const amount = item?.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
+  const linked = formatTransaction(linkedTransaction)
 
   return (
     <aside className="details-panel history-panel">
@@ -468,6 +555,12 @@ function CaseDetailPanel({ t, item }) {
           {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
           {item?.summary && <div className="history-meta"><span>{t.summary}</span><b>{item.summary}</b></div>}
         </div>
+        {linked && (
+          <div className="linked-transaction-block">
+            <h3>{t.linkedTransaction}</h3>
+            <TransactionCard transaction={linked} />
+          </div>
+        )}
       </div>
     </aside>
   )
@@ -495,9 +588,60 @@ function TransactionHistoryPanel({ t, items }) {
   )
 }
 
+function DisputeDetailPanel({ t, item }) {
+  if (!item) return null
+  const amount = item.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
+  return (
+    <aside className="details-panel history-panel">
+      <h2>{t.disputeDetailsTitle}</h2>
+      <div className="history-item">
+        <div className="history-item-head"><strong>Transaction dispute</strong><span>{item.status || '-'}</span></div>
+        <div className="history-meta"><span>{t.caseId}</span><b>{item.dispute_id || '-'}</b></div>
+        {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
+        {item.reason && <div className="history-meta"><span>{t.summary}</span><b>{item.reason}</b></div>}
+      </div>
+    </aside>
+  )
+}
+
+function HandoffPanel({ t, handoff, dispute }) {
+  const facts = handoff?.verified_facts || {}
+  const actions = handoff?.actions_taken || []
+  const questions = handoff?.unresolved_questions || []
+  return (
+    <aside className="details-panel history-panel handoff-panel">
+      <div className="handoff-kicker">ESCALATED</div>
+      <h2>{t.handoffTitle}</h2>
+      {dispute && <div className="history-meta"><span>{t.caseId}</span><b>{dispute.dispute_id}</b></div>}
+      <section className="handoff-section">
+        <h3>{t.verifiedFacts}</h3>
+        {Object.entries(facts).filter(([, value]) => value !== null && value !== undefined && value !== '').map(([key, value]) => (
+          <div className="handoff-row" key={key}><span>{key.replaceAll('_', ' ')}</span><b>{String(value)}</b></div>
+        ))}
+      </section>
+      <section className="handoff-section">
+        <h3>{t.actionsTaken}</h3>
+        <ul>{actions.map((item) => <li key={item}>{item}</li>)}</ul>
+      </section>
+      <section className="handoff-section">
+        <h3>{t.unresolvedQuestions}</h3>
+        <ul>{questions.map((item) => <li key={item}>{item}</li>)}</ul>
+      </section>
+    </aside>
+  )
+}
+
 function RightPanel({ t, authenticated, transaction, panelData, onLogin }) {
+  if (authenticated && panelData?.type === 'handoff') {
+    return <HandoffPanel t={t} handoff={panelData.handoff} dispute={panelData.dispute} />
+  }
+
+  if (authenticated && panelData?.type === 'dispute') {
+    return <DisputeDetailPanel t={t} item={panelData.item} />
+  }
+
   if (authenticated && panelData?.type === 'case_detail') {
-    return <CaseDetailPanel t={t} item={panelData.item} />
+    return <CaseDetailPanel t={t} item={panelData.item} linkedTransaction={panelData.linkedTransaction} />
   }
 
   if (transaction) {
@@ -527,6 +671,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
   const [transactionsError, setTransactionsError] = useState('')
   const [showTransactionSelection, setShowTransactionSelection] = useState(false)
   const [readyToOpenDispute, setReadyToOpenDispute] = useState(false)
+  const [forceHumanReview, setForceHumanReview] = useState(false)
   const composerRef = React.useRef(null)
   const messagesRef = React.useRef(null)
   const welcomeLoadedRef = React.useRef(false)
@@ -617,6 +762,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
         onRightPanelData({
           type: 'case_detail',
           item: result.case_detail,
+          linkedTransaction: result.linked_transaction || null,
         })
         setShowTransactionSelection(false)
         setReadyToOpenDispute(false)
@@ -643,13 +789,19 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
       }
 
       if (result.needs_satisfaction_feedback) {
+        setForceHumanReview(false)
         setPendingDisputeReason(message)
         setAwaitingFeedback(true)
         addBot(t.satisfactionQuestion, { feedbackPrompt: true })
         return
       }
 
+      if (result.human_escalation_requested) {
+        setForceHumanReview(true)
+      }
+
       if (result.needs_transaction_selection) {
+        if (!result.human_escalation_requested) setForceHumanReview(false)
         await enterTransactionSelection(message)
       }
     } catch (error) {
@@ -743,6 +895,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
       }
 
       if (result.needs_transaction_selection) {
+        setForceHumanReview(false)
         await enterTransactionSelection(pendingDisputeReason)
       }
     } catch (error) {
@@ -771,12 +924,21 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
         reason: pendingDisputeReason,
         language,
         interaction_id: interactionId,
+        force_human_review: forceHumanReview,
       })
 
       if (result.response) {
         addBot(result.response)
       } else {
         addBot(`${result.dispute.status}: ${result.dispute.dispute_id}`)
+      }
+
+      if (result.handoff) {
+        onTransaction(null)
+        onRightPanelData({ type: 'handoff', handoff: result.handoff, dispute: result.dispute })
+      } else {
+        onTransaction(null)
+        onRightPanelData({ type: 'dispute', item: result.dispute })
       }
 
       setInteractionFinished(true)
@@ -860,6 +1022,7 @@ function App() {
   const [authenticated, setAuthenticated] = useState(() => has_auth_session())
   const [customerId, setCustomerId] = useState(() => get_current_username())
   const [showLogin, setShowLogin] = useState(false)
+  const [showWorkspace, setShowWorkspace] = useState(false)
   const [transaction, setTransaction] = useState(null)
   const [panelData, setPanelData] = useState(null)
   const [sessionVersion, setSessionVersion] = useState(0)
@@ -884,6 +1047,24 @@ function App() {
     setTransaction(null)
     setPanelData(null)
     setSessionVersion((value) => value + 1)
+  }
+
+  if (!showWorkspace) {
+    return (
+      <>
+        <LandingPage
+          t={t}
+          language={language}
+          onLanguage={changeLanguage}
+          authenticated={authenticated}
+          customerId={customerId}
+          onLogin={() => setShowLogin(true)}
+          onLogout={logout}
+          onEnter={() => setShowWorkspace(true)}
+        />
+        {showLogin && <LoginModal t={t} onClose={() => setShowLogin(false)} onLogin={login} />}
+      </>
+    )
   }
 
   return (

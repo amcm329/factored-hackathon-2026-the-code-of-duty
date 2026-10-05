@@ -90,6 +90,13 @@ def internal_escalation_predict(payload=Body(...)):
     language = payload.get("language", "es")
     country = payload.get("country", "").strip()
     segment = payload.get("segment", "").strip()
+    transaction = payload.get("transaction") or {}
+
+    if not isinstance(transaction, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="transaction must be an object",
+        )
 
     if not text:
         raise HTTPException(
@@ -109,6 +116,7 @@ def internal_escalation_predict(payload=Body(...)):
             language=language,
             country=country,
             segment=segment,
+            transaction=transaction,
         )
     except (RuntimeError, ValueError) as error:
         raise HTTPException(

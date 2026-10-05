@@ -34,7 +34,7 @@ def read_sanitized_evidence(evidence_id, customer_id):
     )["text"]
 
 
-def predict_escalation_worker(text, language, country, segment):
+def predict_escalation_worker(text, language, country, segment, transaction=None):
     """Run VAD and Logistic Regression inference on Worker EC2."""
 
     return _post(
@@ -44,5 +44,6 @@ def predict_escalation_worker(text, language, country, segment):
             "language": language,
             "country": country,
             "segment": segment,
+            "transaction": transaction or {},
         },
     )

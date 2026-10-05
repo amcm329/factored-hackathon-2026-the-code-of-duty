@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 126" role="img" aria-labelledby="title">
+  <title id="title">Hermes</title>
+  <rect width="520" height="126" rx="22" fill="#0b1024"/>
+  <g transform="translate(18 13)">
+    <circle cx="50" cy="50" r="43" fill="none" stroke="#cda648" stroke-width="2"/>
+    <path d="M50 18v67" stroke="#e2bd59" stroke-width="3.2" stroke-linecap="round"/>
+    <circle cx="50" cy="26" r="4.2" fill="#e2bd59"/>
+    <path d="M50 34c-14 5-14 14 0 20 14 6 14 15 0 21-14-6-14-15 0-21 14-6 14-15 0-20Z" fill="none" stroke="#e2bd59" stroke-width="2.6"/>
+    <path d="M47 21c-10-9-20-10-30-7 11 1 20 5 26 12M53 21c10-9 20-10 30-7-11 1-20 5-26 12" fill="none" stroke="#e2bd59" stroke-width="2.3" stroke-linecap="round"/>
+  </g>
+  <text x="126" y="76" fill="#f5efe1" font-family="Georgia, 'Times New Roman', serif" font-size="66" letter-spacing="7">HERMES</text>
+  <text x="130" y="101" fill="#cda648" font-family="Arial, sans-serif" font-size="11" letter-spacing="3.8">SECURE DISPUTE ASSISTANCE</text>
+</svg>

@@ -15,6 +15,7 @@ from backend.database import (
     get_customer_case,
     get_customer_case_history,
     get_customer_segment,
+    get_customer_transaction,
     get_customer_transactions,
     get_historical_complaints,
     record_interaction_turn,
@@ -159,6 +160,25 @@ human_escalation_signals = (
 )
 
 
+ambiguous_transaction_signals = (
+    "i have a problem with a transaction",
+    "i have an issue with a transaction",
+    "there is a problem with a transaction",
+    "transaction problem",
+    "transaction issue",
+    "tengo un problema con una transacción",
+    "tengo un problema con una transaccion",
+    "tengo un problema con un cargo",
+    "problema con una transacción",
+    "problema con una transaccion",
+    "problema con un cargo",
+    "tenho um problema com uma transação",
+    "tenho um problema com uma transacao",
+    "problema com uma transação",
+    "problema com uma transacao",
+)
+
+
 def _normalize_for_intent(value):
     return " ".join(str(value or "").lower().replace("’", "'").split())
 
@@ -181,6 +201,72 @@ def _is_human_escalation_request(message):
         word in normalized
         for word in ("manda", "mánd", "hablar", "escalar", "quiero")
     )
+
+
+def _is_ambiguous_transaction_request(message):
+    """Detect intentionally vague transaction requests that require clarification."""
+
+    if _is_personal_dispute_message(message):
+        return False
+    normalized = _normalize_for_intent(message)
+    return any(signal in normalized for signal in ambiguous_transaction_signals)
+
+
+def _clarification_message(language):
+    return {
+        "en": "What is wrong with the transaction: do you not recognize it, is the amount incorrect, is it duplicated, or is there another issue?",
+        "es": "¿Qué problema tiene la transacción: no la reconoces, el monto es incorrecto, está duplicada o se trata de otro problema?",
+        "pt": "Qual é o problema com a transação: você não a reconhece, o valor está incorreto, está duplicada ou existe outro problema?",
+    }[language]
+
+
+def _safe_transaction_for_model(transaction):
+    """Return only verified transaction fields accepted by the Worker model endpoint."""
+
+    if not transaction:
+        return {}
+    fields = (
+        "transaction_id",
+        "transaction_type",
+        "transaction_category",
+        "amount_usd",
+        "channel",
+        "merchant_category",
+        "transaction_status",
+        "is_fraud",
+        "fraud_score",
+    )
+    return {field: transaction.get(field) for field in fields}
+
+
+def _build_handoff(customer_id, dispute, transaction, reason, evidence_ids):
+    """Build a structured, verified handoff for human review."""
+
+    return {
+        "customer_request": reason,
+        "verified_facts": {
+            "customer_id": customer_id,
+            "dispute_id": str(dispute.get("dispute_id") or ""),
+            "transaction_id": transaction.get("transaction_id"),
+            "transaction_date": transaction.get("transaction_date"),
+            "product_id": transaction.get("product_id"),
+            "merchant_name": transaction.get("merchant_name"),
+            "amount": transaction.get("amount"),
+            "currency": transaction.get("currency"),
+            "channel": transaction.get("channel"),
+            "transaction_status": transaction.get("transaction_status"),
+        },
+        "actions_taken": [
+            "Customer identity was verified by Cognito.",
+            "Transaction ownership was verified against RDS.",
+            "A dispute record was created or an existing active dispute was reused.",
+            "Human review was requested for the dispute.",
+        ],
+        "supporting_evidence_ids": list(evidence_ids or []),
+        "unresolved_questions": [
+            "Determine the final dispute outcome after reviewing the verified transaction and available evidence."
+        ],
+    }
 
 
 def _extract_case_id(message):
@@ -301,7 +387,7 @@ def transactions(customer_id=Depends(get_current_customer_id)):
 
 @app.post("/disputes")
 def create_dispute(payload=Body(...), customer_context=Depends(get_current_customer_context)):
-    """Create one dispute after explicit transaction selection and model inference."""
+    """Create one dispute after explicit transaction selection and verified inference."""
 
     customer_id = customer_context["customer_id"]
     country = customer_context["country"]
@@ -310,12 +396,10 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
     language = _normalize_language(payload.get("language", "en"))
     interaction_id = payload.get("interaction_id", "").strip()
     evidence_ids = payload.get("evidence_ids", []) or []
+    force_human_review = bool(payload.get("force_human_review", False))
 
     if not interaction_id:
-        raise HTTPException(
-            status_code=400,
-            detail="interaction_id is required",
-        )
+        raise HTTPException(status_code=400, detail="interaction_id is required")
 
     if not transaction_id or not reason:
         raise HTTPException(
@@ -329,23 +413,33 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
             detail="evidence_ids must contain at most three items",
         )
 
-    reason_language = detect_language(
-        reason,
-        fallback=language,
-    )
-    safe_reason = sanitize_text(
-        reason,
-        reason_language,
-    )
+    reason_language = detect_language(reason, fallback=language)
+    safe_reason = sanitize_text(reason, reason_language)
 
     try:
-        segment = get_customer_segment(customer_id)
-        prediction = predict_escalation_worker(
-            text=safe_reason,
-            language=reason_language,
-            country=country,
-            segment=segment,
+        transaction = get_customer_transaction(
+            customer_id=customer_id,
+            transaction_id=transaction_id,
         )
+        if transaction is None:
+            raise LookupError("Transaction does not belong to the authenticated customer")
+
+        segment = get_customer_segment(customer_id)
+
+        if force_human_review:
+            prediction = {
+                "escalation_probability": None,
+                "requires_human_review": True,
+            }
+        else:
+            prediction = predict_escalation_worker(
+                text=safe_reason,
+                language=reason_language,
+                country=country,
+                segment=segment,
+                transaction=_safe_transaction_for_model(transaction),
+            )
+
         dispute = create_dispute_case(
             customer_id=customer_id,
             transaction_id=transaction_id,
@@ -355,16 +449,11 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
             evidence_ids=evidence_ids,
         )
     except LookupError as error:
-        raise HTTPException(
-            status_code=404,
-            detail=str(error),
-        ) from error
+        raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=str(error),
-        ) from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
+        logger.exception("Dispute creation failed")
         raise HTTPException(
             status_code=502,
             detail=get_prompt_config()["FAILURE_MESSAGE"][language],
@@ -380,13 +469,21 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
         logger.exception("Interaction metric publication failed")
 
     response = None
-
+    handoff = None
     if dispute["status"] == "ESCALATED":
         response = get_prompt_config()["ESCALATION_MESSAGE"][language]
+        handoff = _build_handoff(
+            customer_id=customer_id,
+            dispute=dispute,
+            transaction=transaction,
+            reason=safe_reason,
+            evidence_ids=evidence_ids,
+        )
 
     return {
         "dispute": dispute,
         "response": response,
+        "handoff": handoff,
         "interaction_finished": True,
     }
 
@@ -486,6 +583,18 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
         }
         if case is not None:
             response["case_detail"] = case
+            linked_transaction_id = case.get("transaction_id")
+            if linked_transaction_id:
+                try:
+                    linked_transaction = get_customer_transaction(
+                        customer_id=customer_id,
+                        transaction_id=linked_transaction_id,
+                    )
+                except Exception:
+                    logger.exception("Linked transaction lookup failed")
+                    linked_transaction = None
+                if linked_transaction is not None:
+                    response["linked_transaction"] = linked_transaction
         return response
 
     if _is_case_history_request(message):
@@ -572,6 +681,17 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             "retrieval_used": False,
             "needs_satisfaction_feedback": False,
             "needs_transaction_selection": True,
+        }
+
+    if _is_ambiguous_transaction_request(message):
+        return {
+            "response": _clarification_message(language),
+            "clarification_required": True,
+            "personal_dispute": False,
+            "retrieval_used": False,
+            "needs_satisfaction_feedback": False,
+            "needs_transaction_selection": False,
+            "authentication_required": False,
         }
 
     try:

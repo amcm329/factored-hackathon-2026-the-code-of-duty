@@ -112,7 +112,8 @@ def get_customer_transactions(customer_id, limit=20, start_date=None, end_date=N
             merchant_name,
             merchant_category,
             transaction_country,
-            transaction_city
+            transaction_city,
+            transaction_status
         FROM transactions
         WHERE {' AND '.join(where_clauses)}
         ORDER BY transaction_date DESC
@@ -127,7 +128,6 @@ def get_customer_transactions(customer_id, limit=20, start_date=None, end_date=N
         ).mappings().all()
 
     return [dict(row) for row in rows]
-
 
 def get_customer_case_history(customer_id, limit=20):
     """Read complaint history and FactoredAI-created disputes for one customer."""
@@ -188,7 +188,7 @@ def get_customer_case_history(customer_id, limit=20):
 
 
 def get_customer_case(customer_id, case_id):
-    """Read one complaint or FactoredAI dispute only when it belongs to the authenticated customer."""
+    """Read one owned complaint/dispute and expose a transaction only when linkage is unambiguous."""
 
     normalized_case_id = str(case_id or "").strip()
     if not normalized_case_id:
@@ -197,25 +197,47 @@ def get_customer_case(customer_id, case_id):
     if normalized_case_id.upper().startswith("CMP-"):
         query = text(
             """
+            WITH owned_complaint AS (
+                SELECT *
+                FROM complaints
+                WHERE customer_id = :customer_id
+                  AND UPPER(complaint_id) = UPPER(:case_id)
+                LIMIT 1
+            )
             SELECT
-                complaint_id::text AS case_id,
-                creation_date AS case_date,
+                c.complaint_id::text AS case_id,
+                c.creation_date AS case_date,
                 'BANK_HISTORY'::text AS source,
-                case_type,
-                category,
-                subcategory,
-                status,
-                claimed_amount,
-                currency,
-                description AS summary,
-                resolution,
-                priority,
-                affected_product_id,
-                NULL::text AS transaction_id
-            FROM complaints
-            WHERE customer_id = :customer_id
-              AND UPPER(complaint_id) = UPPER(:case_id)
-            LIMIT 1
+                c.case_type,
+                c.category,
+                c.subcategory,
+                c.status,
+                c.claimed_amount,
+                c.currency,
+                c.description AS summary,
+                c.resolution,
+                c.priority,
+                c.affected_product_id,
+                tx.transaction_id,
+                CASE
+                    WHEN tx.candidate_count = 1 THEN 'UNAMBIGUOUS_DERIVED_MATCH'
+                    ELSE NULL
+                END AS transaction_link_type
+            FROM owned_complaint c
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) AS candidate_count,
+                    CASE WHEN COUNT(*) = 1 THEN MAX(t.transaction_id) END AS transaction_id
+                FROM transactions t
+                WHERE t.customer_id = c.customer_id
+                  AND c.affected_product_id IS NOT NULL
+                  AND t.product_id = c.affected_product_id
+                  AND c.claimed_amount IS NOT NULL
+                  AND t.amount = c.claimed_amount
+                  AND c.currency IS NOT NULL
+                  AND t.currency = c.currency
+                  AND t.transaction_date <= c.creation_date
+            ) tx ON TRUE
             """
         )
         params = {
@@ -244,7 +266,8 @@ def get_customer_case(customer_id, case_id):
                 NULL::text AS resolution,
                 NULL::text AS priority,
                 product_id AS affected_product_id,
-                transaction_id
+                transaction_id,
+                'EXACT_DISPUTE_LINK'::text AS transaction_link_type
             FROM dispute_cases
             WHERE customer_id = :customer_id
               AND dispute_id = CAST(:case_id AS UUID)
@@ -261,7 +284,6 @@ def get_customer_case(customer_id, case_id):
 
     return dict(row) if row else None
 
-
 def get_customer_transaction(customer_id, transaction_id):
     """Read one transaction only when it belongs to the authenticated customer."""
 
@@ -269,9 +291,21 @@ def get_customer_transaction(customer_id, transaction_id):
         """
         SELECT
             transaction_id,
+            transaction_date,
             product_id,
+            transaction_type,
+            transaction_category,
             amount,
-            currency
+            currency,
+            amount_usd,
+            channel,
+            merchant_name,
+            merchant_category,
+            transaction_country,
+            transaction_city,
+            transaction_status,
+            is_fraud,
+            fraud_score
         FROM transactions
         WHERE customer_id = :customer_id
           AND transaction_id = :transaction_id
@@ -289,7 +323,6 @@ def get_customer_transaction(customer_id, transaction_id):
         ).mappings().first()
 
     return dict(row) if row else None
-
 
 def _validate_evidence_for_dispute(connection, customer_id, evidence_ids):
     """Validate processed, unattached evidence before linking it to a dispute."""
@@ -340,7 +373,7 @@ def _validate_evidence_for_dispute(connection, customer_id, evidence_ids):
 
 
 def create_dispute_case(customer_id, transaction_id, reason, escalation_probability, requires_human_review, evidence_ids=None):
-    """Create one dispute and atomically attach validated evidence."""
+    """Create one active dispute per transaction and safely reuse/escalate an existing one."""
 
     transaction = get_customer_transaction(
         customer_id=customer_id,
@@ -359,6 +392,18 @@ def create_dispute_case(customer_id, transaction_id, reason, escalation_probabil
           AND status IN ('OPEN', 'ESCALATED')
         ORDER BY created_at DESC
         LIMIT 1
+        """
+    )
+    escalate_existing_query = text(
+        """
+        UPDATE dispute_cases
+        SET
+            status = 'ESCALATED',
+            requires_human_review = TRUE,
+            escalation_probability = COALESCE(:escalation_probability, escalation_probability),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE dispute_id = CAST(:dispute_id AS UUID)
+        RETURNING *
         """
     )
 
@@ -400,12 +445,7 @@ def create_dispute_case(customer_id, transaction_id, reason, escalation_probabil
         WHERE customer_id = :customer_id
           AND CAST(evidence_id AS TEXT) IN :evidence_ids
         """
-    ).bindparams(
-        bindparam(
-            "evidence_ids",
-            expanding=True,
-        )
-    )
+    ).bindparams(bindparam("evidence_ids", expanding=True))
 
     with get_engine().begin() as connection:
         existing = connection.execute(
@@ -416,14 +456,39 @@ def create_dispute_case(customer_id, transaction_id, reason, escalation_probabil
             },
         ).mappings().first()
 
-        if existing is not None:
-            return dict(existing)
-
         valid_evidence_ids = _validate_evidence_for_dispute(
             connection=connection,
             customer_id=customer_id,
             evidence_ids=evidence_ids or [],
         )
+
+        if existing is not None:
+            row = dict(existing)
+            if requires_human_review and row.get("status") != "ESCALATED":
+                updated = connection.execute(
+                    escalate_existing_query,
+                    {
+                        "dispute_id": str(row["dispute_id"]),
+                        "escalation_probability": escalation_probability,
+                    },
+                ).mappings().first()
+                if updated is None:
+                    raise RuntimeError("Existing dispute escalation was not confirmed")
+                row = dict(updated)
+
+            if valid_evidence_ids:
+                result = connection.execute(
+                    attach_query,
+                    {
+                        "dispute_id": str(row["dispute_id"]),
+                        "customer_id": customer_id,
+                        "evidence_ids": valid_evidence_ids,
+                    },
+                )
+                if result.rowcount != len(valid_evidence_ids):
+                    raise RuntimeError("Evidence attachment was not fully confirmed")
+            return row
+
         row = connection.execute(
             insert_query,
             {
@@ -452,12 +517,10 @@ def create_dispute_case(customer_id, transaction_id, reason, escalation_probabil
                     "evidence_ids": valid_evidence_ids,
                 },
             )
-
             if result.rowcount != len(valid_evidence_ids):
                 raise RuntimeError("Evidence attachment was not fully confirmed")
 
     return dict(row)
-
 
 def create_evidence_record(customer_id, evidence_id, s3_key, content_type, file_size_bytes):
     """Create evidence metadata owned by one authenticated customer."""

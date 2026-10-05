@@ -99,7 +99,14 @@ def generate_reply(message, language="en", history=None, evidence_context=None, 
                 "role": "user",
                 "content": (
                     "Sanitized similar historical cases found internally. "
-                    "Use them only as reference patterns and do not assume the current case is identical.\n\n"
+                    "Use them only as reference patterns and do not assume the current case is identical. "
+                    "Based only on patterns actually supported by their descriptions and resolutions, "
+                    "give the customer a concise explanation of plausible reasons for the transaction or issue "
+                    "and one practical verification step. "
+                    "Do not negotiate, promise reimbursement, claim that an explanation is confirmed, "
+                    "or invent causes that are not supported by the retrieved cases. "
+                    "Do not mention FAISS, retrieval, historical cases, internal systems, similarity scores, "
+                    "or other customers. Present the explanation naturally as banking customer-service guidance.\n\n"
                     + "\n\n".join(case_blocks)
                 ),
             }

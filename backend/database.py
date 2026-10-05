@@ -81,11 +81,25 @@ def get_customer_segment(customer_id):
     return row["segment"]
 
 
-def get_customer_transactions(customer_id, limit=20):
-    """Read recent transactions needed for explicit customer selection."""
+def get_customer_transactions(customer_id, limit=20, start_date=None, end_date=None):
+    """Read customer transactions, optionally restricted to an inclusive date range."""
+
+    where_clauses = ["customer_id = :customer_id"]
+    params = {
+        "customer_id": customer_id,
+        "limit": int(limit),
+    }
+
+    if start_date is not None:
+        where_clauses.append("transaction_date >= :start_date")
+        params["start_date"] = start_date
+
+    if end_date is not None:
+        where_clauses.append("transaction_date < (:end_date + INTERVAL '1 day')")
+        params["end_date"] = end_date
 
     query = text(
-        """
+        f"""
         SELECT
             transaction_id,
             transaction_date,
@@ -100,7 +114,7 @@ def get_customer_transactions(customer_id, limit=20):
             transaction_country,
             transaction_city
         FROM transactions
-        WHERE customer_id = :customer_id
+        WHERE {' AND '.join(where_clauses)}
         ORDER BY transaction_date DESC
         LIMIT :limit
         """
@@ -109,10 +123,7 @@ def get_customer_transactions(customer_id, limit=20):
     with get_engine().connect() as connection:
         rows = connection.execute(
             query,
-            {
-                "customer_id": customer_id,
-                "limit": int(limit),
-            },
+            params,
         ).mappings().all()
 
     return [dict(row) for row in rows]

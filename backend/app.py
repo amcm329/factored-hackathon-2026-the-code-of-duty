@@ -1,4 +1,6 @@
 import logging
+import re
+from datetime import date
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 
@@ -115,50 +117,112 @@ case_history_signals = (
     "minhas reclamacoes",
 )
 
+transaction_history_signals = (
+    "mis transacciones",
+    "mis movimientos",
+    "ver mis transacciones",
+    "quiero ver mis transacciones",
+    "historial de transacciones",
+    "transacciones desde",
+    "my transactions",
+    "transaction history",
+    "transactions from",
+    "minhas transações",
+    "minhas transacoes",
+    "histórico de transações",
+    "historico de transacoes",
+    "transações desde",
+    "transacoes desde",
+)
+
+human_escalation_signals = (
+    "talk to a human",
+    "speak to a human",
+    "talk to an agent",
+    "speak to an agent",
+    "human agent",
+    "representative",
+    "escalate to a human",
+    "quiero un humano",
+    "hablar con un humano",
+    "hablar con un agente",
+    "hablar con una persona",
+    "quiero un representante",
+    "escalar con un humano",
+    "escalar a un humano",
+    "mándame con",
+    "mandame con",
+    "falar com um humano",
+    "falar com um agente",
+    "representante humano",
+)
+
 
 def _normalize_for_intent(value):
     return " ".join(str(value or "").lower().replace("’", "'").split())
 
 
 def _is_case_history_request(message):
-    """Detect requests for the authenticated customer's own case history."""
     normalized = _normalize_for_intent(message)
     return any(signal in normalized for signal in case_history_signals)
 
 
-def _format_case_history_response(cases, language):
-    """Format private RDS case history without sending it to OpenAI."""
+def _is_transaction_history_request(message):
+    normalized = _normalize_for_intent(message)
+    return any(signal in normalized for signal in transaction_history_signals)
+
+
+def _is_human_escalation_request(message):
+    normalized = _normalize_for_intent(message)
+    if any(signal in normalized for signal in human_escalation_signals):
+        return True
+    return "humano" in normalized and any(
+        word in normalized
+        for word in ("manda", "mánd", "hablar", "escalar", "quiero")
+    )
+
+
+def _extract_iso_date_range(message):
+    values = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", str(message or ""))
+    parsed = []
+    for value in values[:2]:
+        try:
+            parsed.append(date.fromisoformat(value))
+        except ValueError:
+            pass
+    start_date = parsed[0] if parsed else None
+    end_date = parsed[1] if len(parsed) > 1 else None
+    if start_date and end_date and start_date > end_date:
+        start_date, end_date = end_date, start_date
+    return start_date, end_date
+
+
+def _case_history_message(cases, language):
     if not cases:
         return {
             "en": "I found no disputes or complaints associated with your account.",
             "es": "No encontré disputas ni reclamos asociados con tu cuenta.",
             "pt": "Não encontrei contestações ou reclamações associadas à sua conta.",
         }[language]
+    return {
+        "en": f"I found {len(cases)} dispute/complaint record(s). I displayed them on the right.",
+        "es": f"Encontré {len(cases)} disputa(s) o reclamo(s). Los mostré en el panel derecho.",
+        "pt": f"Encontrei {len(cases)} contestação(ões) ou reclamação(ões). Mostrei no painel à direita.",
+    }[language]
 
-    headings = {
-        "en": "These are your most recent disputes and complaints:",
-        "es": "Estas son tus disputas y reclamos más recientes:",
-        "pt": "Estas são suas contestações e reclamações mais recentes:",
-    }
-    lines = [headings[language]]
 
-    for index, case in enumerate(cases[:10], start=1):
-        case_date = case.get("case_date")
-        date_text = (
-            case_date.strftime("%Y-%m-%d")
-            if hasattr(case_date, "strftime")
-            else str(case_date or "")[:10]
-        )
-        amount = case.get("claimed_amount")
-        currency = str(case.get("currency") or "").strip()
-        amount_text = f"{currency} {amount}".strip() if amount is not None else "-"
-        label = case.get("category") or case.get("case_type") or "-"
-        lines.append(
-            f"{index}. {case['case_id']} | {date_text} | "
-            f"{case.get('status') or '-'} | {label} | {amount_text}"
-        )
-
-    return "\n".join(lines)
+def _transaction_history_message(transactions, language):
+    if not transactions:
+        return {
+            "en": "I found no transactions for that request.",
+            "es": "No encontré transacciones para esa consulta.",
+            "pt": "Não encontrei transações para essa consulta.",
+        }[language]
+    return {
+        "en": f"I found {len(transactions)} transaction(s). I displayed them on the right.",
+        "es": f"Encontré {len(transactions)} transacción(es). Las mostré en el panel derecho.",
+        "pt": f"Encontrei {len(transactions)} transação(ões). Mostrei no painel à direita.",
+    }[language]
 
 
 def _normalize_language(language):
@@ -376,12 +440,70 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             ) from error
 
         return {
-            "response": _format_case_history_response(cases, language),
+            "response": _case_history_message(cases, language),
+            "case_history": cases,
             "personal_dispute": False,
             "retrieval_used": False,
             "needs_satisfaction_feedback": False,
             "needs_transaction_selection": False,
             "authentication_required": False,
+        }
+
+    if _is_transaction_history_request(message):
+        if not customer_id:
+            return {
+                "response": None,
+                "authentication_required": True,
+                "personal_dispute": False,
+                "needs_satisfaction_feedback": False,
+                "needs_transaction_selection": False,
+            }
+
+        start_date, end_date = _extract_iso_date_range(message)
+
+        try:
+            transactions = get_customer_transactions(
+                customer_id=customer_id,
+                limit=100,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception as error:
+            logger.exception("Customer transaction-history lookup failed")
+            raise HTTPException(
+                status_code=502,
+                detail=get_prompt_config()["FAILURE_MESSAGE"][language],
+            ) from error
+
+        return {
+            "response": _transaction_history_message(transactions, language),
+            "transaction_history": transactions,
+            "personal_dispute": False,
+            "retrieval_used": False,
+            "needs_satisfaction_feedback": False,
+            "needs_transaction_selection": False,
+            "authentication_required": False,
+        }
+
+    if _is_human_escalation_request(message):
+        if not customer_id:
+            return {
+                "response": None,
+                "authentication_required": True,
+                "personal_dispute": True,
+                "human_escalation_requested": True,
+                "needs_satisfaction_feedback": False,
+                "needs_transaction_selection": False,
+            }
+
+        return {
+            "response": None,
+            "authentication_required": False,
+            "personal_dispute": True,
+            "human_escalation_requested": True,
+            "retrieval_used": False,
+            "needs_satisfaction_feedback": False,
+            "needs_transaction_selection": True,
         }
 
     try:

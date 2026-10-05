@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-  Bot,
   CalendarDays,
   ChevronDown,
   CreditCard,
@@ -18,6 +17,8 @@ import {
   WalletCards,
 } from 'lucide-react'
 import './styles.css'
+import hermesLogo from './assets/hermes-logo.png'
+import hermesIcon from './assets/hermes-icon.png'
 import {
   create_dispute,
   get_welcome_message,
@@ -96,7 +97,7 @@ const personal_dispute_signals = [
 
 const copy = {
   en: {
-    title: 'AI Dispute Assistant',
+    title: 'Hermes',
     subtitle: 'Help with disputed or unrecognized transactions',
     disputes: 'Disputes',
     guest: 'Guest mode',
@@ -132,9 +133,14 @@ const copy = {
     noTransactions: 'No transactions were available for selection.',
     evidenceLimit: 'You can attach up to three PDF evidence files.',
     requestFailed: 'The request could not be completed. Please try again.',
+    caseHistoryTitle: 'My disputes and complaints',
+    transactionHistoryTitle: 'My transactions',
+    noHistory: 'No records found.',
+    status: 'Status',
+    caseId: 'Case ID',
   },
   es: {
-    title: 'Asistente de Disputas con IA',
+    title: 'Hermes',
     subtitle: 'Ayuda con transacciones disputadas o no reconocidas',
     disputes: 'Disputas',
     guest: 'Modo invitado',
@@ -170,9 +176,14 @@ const copy = {
     noTransactions: 'No hay transacciones disponibles para seleccionar.',
     evidenceLimit: 'Puedes adjuntar hasta tres archivos PDF como evidencia.',
     requestFailed: 'No se pudo completar la solicitud. Inténtalo de nuevo.',
+    caseHistoryTitle: 'Mis disputas y reclamos',
+    transactionHistoryTitle: 'Mis transacciones',
+    noHistory: 'No se encontraron registros.',
+    status: 'Estado',
+    caseId: 'ID del caso',
   },
   pt: {
-    title: 'Assistente de Contestação com IA',
+    title: 'Hermes',
     subtitle: 'Ajuda com transações contestadas ou não reconhecidas',
     disputes: 'Contestações',
     guest: 'Modo convidado',
@@ -208,6 +219,11 @@ const copy = {
     noTransactions: 'Não há transações disponíveis para selecionar.',
     evidenceLimit: 'Você pode anexar até três arquivos PDF como evidência.',
     requestFailed: 'Não foi possível concluir a solicitação. Tente novamente.',
+    caseHistoryTitle: 'Minhas contestações e reclamações',
+    transactionHistoryTitle: 'Minhas transações',
+    noHistory: 'Nenhum registro encontrado.',
+    status: 'Status',
+    caseId: 'ID do caso',
   },
 }
 
@@ -219,11 +235,7 @@ function looksPersonalDispute(value) {
 function Brand() {
   return (
     <div className="brand">
-      <div className="brand-mark"><span /><span /></div>
-      <div>
-        <div className="brand-title">YourBank</div>
-        <div className="brand-subtitle">Demo Bank</div>
-      </div>
+      <img className="brand-logo" src={hermesLogo} alt="Hermes" />
     </div>
   )
 }
@@ -300,7 +312,7 @@ function Header({ t, language, onLanguage, authenticated, customerId, onLogin, o
   return (
     <header className="topbar">
       <div className="assistant-heading">
-        <div className="assistant-icon"><Bot size={34} /></div>
+        <div className="assistant-icon"><img src={hermesIcon} alt="" /></div>
         <div><h1>{t.title}</h1><p>{t.subtitle}</p></div>
       </div>
       <div className="topbar-actions">
@@ -404,7 +416,72 @@ function TransactionDetails({ t, authenticated, transaction, onLogin }) {
   )
 }
 
-function Chat({ t, language, authenticated, transaction, onTransaction, onRequireLogin }) {
+function CaseHistoryPanel({ t, items }) {
+  return (
+    <aside className="details-panel history-panel">
+      <h2>{t.caseHistoryTitle}</h2>
+      {!items.length && <p className="history-empty">{t.noHistory}</p>}
+      <div className="history-list">
+        {items.map((item) => {
+          const rawDate = item.case_date ? new Date(item.case_date) : null
+          const dateText = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toLocaleDateString() : ''
+          const amount = item.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
+          return (
+            <div className="history-item" key={item.case_id}>
+              <div className="history-item-head">
+                <strong>{item.category || item.case_type || '-'}</strong>
+                <span>{item.status || '-'}</span>
+              </div>
+              <small>{dateText}</small>
+              <div className="history-meta"><span>{t.caseId}</span><b>{item.case_id}</b></div>
+              {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
+            </div>
+          )
+        })}
+      </div>
+    </aside>
+  )
+}
+
+function TransactionHistoryPanel({ t, items }) {
+  return (
+    <aside className="details-panel history-panel">
+      <h2>{t.transactionHistoryTitle}</h2>
+      {!items.length && <p className="history-empty">{t.noHistory}</p>}
+      <div className="history-list">
+        {items.map((item) => (
+          <div className="history-item" key={item.transaction_id}>
+            <div className="history-item-head">
+              <strong>{item.merchant || '-'}</strong>
+              <span>{item.amount || '-'}</span>
+            </div>
+            <small>{[item.date, item.time].filter(Boolean).join(' ')}</small>
+            {item.category && <div className="history-meta"><span>{item.category}</span></div>}
+            {item.location && <div className="history-meta"><span>{item.location}</span></div>}
+          </div>
+        ))}
+      </div>
+    </aside>
+  )
+}
+
+function RightPanel({ t, authenticated, transaction, panelData, onLogin }) {
+  if (transaction) {
+    return <TransactionDetails t={t} authenticated={authenticated} transaction={transaction} onLogin={onLogin} />
+  }
+
+  if (authenticated && panelData?.type === 'cases') {
+    return <CaseHistoryPanel t={t} items={panelData.items || []} />
+  }
+
+  if (authenticated && panelData?.type === 'transactions') {
+    return <TransactionHistoryPanel t={t} items={panelData.items || []} />
+  }
+
+  return <TransactionDetails t={t} authenticated={authenticated} transaction={null} onLogin={onLogin} />
+}
+
+function Chat({ t, language, authenticated, transaction, onTransaction, onRightPanelData, onRequireLogin }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [interactionId] = useState(() => crypto.randomUUID())
@@ -473,6 +550,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
     setAwaitingFeedback(false)
     setReadyToOpenDispute(false)
     onTransaction(null)
+    onRightPanelData(null)
     const available = transactions.length ? transactions : await loadTransactions()
     setShowTransactionSelection(true)
 
@@ -498,6 +576,26 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
 
       if (result.response) {
         addBot(result.response)
+      }
+
+      if (Array.isArray(result.case_history)) {
+        onTransaction(null)
+        onRightPanelData({
+          type: 'cases',
+          items: result.case_history,
+        })
+        setShowTransactionSelection(false)
+        setReadyToOpenDispute(false)
+      }
+
+      if (Array.isArray(result.transaction_history)) {
+        onTransaction(null)
+        onRightPanelData({
+          type: 'transactions',
+          items: result.transaction_history.map(formatTransaction).filter(Boolean),
+        })
+        setShowTransactionSelection(false)
+        setReadyToOpenDispute(false)
       }
 
       if (result.needs_satisfaction_feedback) {
@@ -531,6 +629,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
       setTransactions([])
       setTransactionsError('')
       onTransaction(null)
+      onRightPanelData(null)
     }
   }, [authenticated])
 
@@ -608,6 +707,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
   }
 
   function selectTransaction(selected) {
+    onRightPanelData(null)
     onTransaction(selected)
     setShowTransactionSelection(false)
     setReadyToOpenDispute(true)
@@ -650,7 +750,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
       <div className="messages" ref={messagesRef}>
         {messages.map((message, index) => (
           <div className={`message-row ${message.from}`} key={`${message.from}-${index}`}>
-            {message.from === 'bot' && <div className="bot-avatar"><Bot size={24} /></div>}
+            {message.from === 'bot' && <div className="bot-avatar"><img src={hermesIcon} alt="" /></div>}
             <div className="message-stack">
               <div className={`message-bubble ${message.from}`}>{message.text}</div>
               <span className="message-time">{message.time}</span>
@@ -717,6 +817,7 @@ function App() {
   const [customerId, setCustomerId] = useState(() => get_current_username())
   const [showLogin, setShowLogin] = useState(false)
   const [transaction, setTransaction] = useState(null)
+  const [panelData, setPanelData] = useState(null)
   const [sessionVersion, setSessionVersion] = useState(0)
   const t = copy[language]
 
@@ -737,6 +838,7 @@ function App() {
     setAuthenticated(false)
     setCustomerId('')
     setTransaction(null)
+    setPanelData(null)
     setSessionVersion((value) => value + 1)
   }
 
@@ -761,12 +863,14 @@ function App() {
             authenticated={authenticated}
             transaction={transaction}
             onTransaction={setTransaction}
+            onRightPanelData={setPanelData}
             onRequireLogin={() => setShowLogin(true)}
           />
-          <TransactionDetails
+          <RightPanel
             t={t}
             authenticated={authenticated}
             transaction={transaction}
+            panelData={panelData}
             onLogin={() => setShowLogin(true)}
           />
         </div>

@@ -33,58 +33,7 @@ export async function get_welcome_message(language = 'en') {
   return response.json()
 }
 
-export async function request_evidence_upload(file) {
-  const response = await fetch(`${api_url}/evidence/presign`, {
-    method: 'POST',
-    headers: auth_headers(),
-    body: JSON.stringify({
-      content_type: file.type,
-      size: file.size,
-    }),
-  })
-
-  if (!response.ok) {
-    throw await response_error(response, `Presign request failed: ${response.status}`)
-  }
-
-  return response.json()
-}
-
-export async function upload_evidence_pdf(file, upload) {
-  const form_data = new FormData()
-
-  Object.entries(upload.fields).forEach(([key, value]) => {
-    form_data.append(key, value)
-  })
-  form_data.append('file', file)
-
-  const response = await fetch(upload.url, {
-    method: 'POST',
-    body: form_data,
-  })
-
-  if (!response.ok) {
-    throw new Error(`S3 upload failed: ${response.status}`)
-  }
-}
-
-export async function process_evidence(evidence_id) {
-  const response = await fetch(`${api_url}/evidence/process`, {
-    method: 'POST',
-    headers: auth_headers(),
-    body: JSON.stringify({
-      evidence_id,
-    }),
-  })
-
-  if (!response.ok) {
-    throw await response_error(response, `Evidence processing failed: ${response.status}`)
-  }
-
-  return response.json()
-}
-
-export async function send_chat(message, language = 'en', history = [], evidence_ids = [], interaction_id = '') {
+export async function send_chat(message, language = 'en', history = [], interaction_id = '') {
   const response = await fetch(`${api_url}/chat`, {
     method: 'POST',
     headers: auth_headers(),
@@ -92,7 +41,6 @@ export async function send_chat(message, language = 'en', history = [], evidence
       message,
       language,
       history,
-      evidence_ids,
       interaction_id,
     }),
   })

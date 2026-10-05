@@ -118,6 +118,64 @@ def get_customer_transactions(customer_id, limit=20):
     return [dict(row) for row in rows]
 
 
+def get_customer_case_history(customer_id, limit=20):
+    """Read complaint history and FactoredAI-created disputes for one customer."""
+    query = text(
+        """
+        SELECT
+            case_id,
+            case_date,
+            source,
+            case_type,
+            category,
+            status,
+            claimed_amount,
+            currency,
+            summary
+        FROM (
+            SELECT
+                complaint_id::text AS case_id,
+                creation_date AS case_date,
+                'BANK_HISTORY'::text AS source,
+                case_type,
+                category,
+                status,
+                claimed_amount,
+                currency,
+                description AS summary
+            FROM complaints
+            WHERE customer_id = :customer_id
+
+            UNION ALL
+
+            SELECT
+                dispute_id::text AS case_id,
+                created_at AS case_date,
+                'FACTORED_AI'::text AS source,
+                'Dispute'::text AS case_type,
+                'Transaction dispute'::text AS category,
+                status,
+                claimed_amount,
+                currency,
+                reason AS summary
+            FROM dispute_cases
+            WHERE customer_id = :customer_id
+        ) AS customer_cases
+        ORDER BY case_date DESC
+        LIMIT :limit
+        """
+    )
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            query,
+            {
+                "customer_id": customer_id,
+                "limit": int(limit),
+            },
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
 def get_customer_transaction(customer_id, transaction_id):
     """Read one transaction only when it belongs to the authenticated customer."""
 

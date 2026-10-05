@@ -10,6 +10,7 @@ from backend.auth import (
 from backend.database import (
     create_dispute_case,
     finalize_interaction_metrics,
+    get_customer_case_history,
     get_customer_segment,
     get_customer_transactions,
     get_historical_complaints,
@@ -22,10 +23,7 @@ from backend.openai_client import generate_reply
 from backend.privacy import sanitize_text
 from backend.retrieval_client import search_similar_cases_retrieval
 from backend.secrets import get_prompt_config
-from backend.worker_client import (
-    predict_escalation_worker,
-    read_sanitized_evidence,
-)
+from backend.worker_client import predict_escalation_worker
 
 
 logger = logging.getLogger(__name__)
@@ -68,6 +66,16 @@ personal_dispute_signals = (
     "disputar esta transacción",
     "disputar esta transaccion",
     "abrir una disputa",
+    "desconozco este cargo",
+    "desconozco esta transacción",
+    "desconozco esta transaccion",
+    "este cargo no es mío",
+    "este cargo no es mio",
+    "quiero reportar este cargo",
+    "quiero escalar con un humano",
+    "quiero hablar con un humano",
+    "quiero hablar con una persona",
+    "quiero un representante",
     "não reconheço",
     "quero contestar",
     "preciso contestar",
@@ -87,83 +95,70 @@ personal_dispute_signals = (
     "abrir uma contestacao",
 )
 
-personal_request_signals = (
-    "help me",
-    "help with",
-    "i need help",
-    "i have",
-    "i want",
-    "can you help me",
-    "ayúdame",
-    "ayudame",
-    "ayuda con",
-    "necesito ayuda",
-    "tengo",
-    "quiero",
-    "pode me ajudar",
-    "me ajude",
-    "ajuda com",
-    "preciso de ajuda",
-    "tenho",
-    "quero",
+
+case_history_signals = (
+    "mis disputas",
+    "mis casos",
+    "mis reclamos",
+    "historial de disputas",
+    "historial de reclamos",
+    "muéstrame mis disputas",
+    "muestrame mis disputas",
+    "quiero ver mis disputas",
+    "quiero ver mis casos",
+    "my disputes",
+    "my cases",
+    "my complaints",
+    "minhas contestações",
+    "minhas contestacoes",
+    "minhas reclamações",
+    "minhas reclamacoes",
 )
 
-dispute_topic_signals = (
-    "dispute",
-    "disputed",
-    "charge",
-    "transaction",
-    "withdrawal",
-    "transfer",
-    "direct debit",
-    "purchase",
-    "disputa",
-    "disputar",
-    "cargo",
-    "transacción",
-    "transaccion",
-    "retiro",
-    "transferencia",
-    "débito",
-    "debito",
-    "compra",
-    "contestação",
-    "contestacao",
-    "contestar",
-    "cobrança",
-    "cobranca",
-    "transação",
-    "transacao",
-    "saque",
-    "transferência",
-    "transferencia",
-    "débito direto",
-    "debito direto",
-)
 
-general_information_signals = (
-    "what is",
-    "what are",
-    "what does",
-    "how does",
-    "how do",
-    "explain",
-    "tell me about",
-    "qué es",
-    "que es",
-    "qué son",
-    "que son",
-    "cómo funciona",
-    "como funciona",
-    "explícame",
-    "explicame",
-    "o que é",
-    "o que e",
-    "o que são",
-    "o que sao",
-    "como funciona",
-    "explique",
-)
+def _normalize_for_intent(value):
+    return " ".join(str(value or "").lower().replace("’", "'").split())
+
+
+def _is_case_history_request(message):
+    """Detect requests for the authenticated customer's own case history."""
+    normalized = _normalize_for_intent(message)
+    return any(signal in normalized for signal in case_history_signals)
+
+
+def _format_case_history_response(cases, language):
+    """Format private RDS case history without sending it to OpenAI."""
+    if not cases:
+        return {
+            "en": "I found no disputes or complaints associated with your account.",
+            "es": "No encontré disputas ni reclamos asociados con tu cuenta.",
+            "pt": "Não encontrei contestações ou reclamações associadas à sua conta.",
+        }[language]
+
+    headings = {
+        "en": "These are your most recent disputes and complaints:",
+        "es": "Estas son tus disputas y reclamos más recientes:",
+        "pt": "Estas são suas contestações e reclamações mais recentes:",
+    }
+    lines = [headings[language]]
+
+    for index, case in enumerate(cases[:10], start=1):
+        case_date = case.get("case_date")
+        date_text = (
+            case_date.strftime("%Y-%m-%d")
+            if hasattr(case_date, "strftime")
+            else str(case_date or "")[:10]
+        )
+        amount = case.get("claimed_amount")
+        currency = str(case.get("currency") or "").strip()
+        amount_text = f"{currency} {amount}".strip() if amount is not None else "-"
+        label = case.get("category") or case.get("case_type") or "-"
+        lines.append(
+            f"{index}. {case['case_id']} | {date_text} | "
+            f"{case.get('status') or '-'} | {label} | {amount_text}"
+        )
+
+    return "\n".join(lines)
 
 
 def _normalize_language(language):
@@ -174,19 +169,10 @@ def _normalize_language(language):
 
 
 def _is_personal_dispute_message(message):
-    """Detect personal dispute intent without another model."""
+    """Detect simple personal transaction-dispute intent without another model."""
 
-    normalized = " ".join(str(message or "").lower().replace("’", "'").split())
-
-    if any(normalized.startswith(signal) for signal in general_information_signals):
-        return False
-
-    if any(signal in normalized for signal in personal_dispute_signals):
-        return True
-
-    has_personal_request = any(signal in normalized for signal in personal_request_signals)
-    has_dispute_topic = any(signal in normalized for signal in dispute_topic_signals)
-    return has_personal_request and has_dispute_topic
+    normalized = _normalize_for_intent(message)
+    return any(signal in normalized for signal in personal_dispute_signals)
 
 
 @app.get("/health")
@@ -363,7 +349,6 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
 
     message = payload.get("message", "").strip()
     history = payload.get("history", [])
-    evidence_ids = payload.get("evidence_ids", []) or []
 
     if not message:
         raise HTTPException(
@@ -371,17 +356,33 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             detail="message is required",
         )
 
-    if not isinstance(evidence_ids, list) or len(evidence_ids) > 3:
-        raise HTTPException(
-            status_code=400,
-            detail="evidence_ids must contain at most three items",
-        )
+    if _is_case_history_request(message):
+        if not customer_id:
+            return {
+                "response": None,
+                "authentication_required": True,
+                "personal_dispute": False,
+                "needs_satisfaction_feedback": False,
+                "needs_transaction_selection": False,
+            }
 
-    if evidence_ids and not customer_id:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication is required to use evidence",
-        )
+        try:
+            cases = get_customer_case_history(customer_id=customer_id, limit=20)
+        except Exception as error:
+            logger.exception("Customer case-history lookup failed")
+            raise HTTPException(
+                status_code=502,
+                detail=get_prompt_config()["FAILURE_MESSAGE"][language],
+            ) from error
+
+        return {
+            "response": _format_case_history_response(cases, language),
+            "personal_dispute": False,
+            "retrieval_used": False,
+            "needs_satisfaction_feedback": False,
+            "needs_transaction_selection": False,
+            "authentication_required": False,
+        }
 
     try:
         start_interaction_metrics(interaction_id)
@@ -408,50 +409,27 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
         message_language,
     )
     evidence_context = []
-
-    try:
-        for evidence_id in evidence_ids:
-            safe_text = read_sanitized_evidence(
-                evidence_id=evidence_id,
-                customer_id=customer_id,
-            )
-            evidence_context.append(safe_text)
-    except Exception as error:
-        raise HTTPException(
-            status_code=502,
-            detail=get_prompt_config()["FAILURE_MESSAGE"][language],
-        ) from error
-
     similar_matches = []
 
     if personal_dispute and country:
-        retrieval_texts = [safe_message] + evidence_context
         matches_by_id = {}
 
         try:
-            for retrieval_text in retrieval_texts:
-                for match in search_similar_cases_retrieval(
-                    text=retrieval_text,
-                    country=country,
-                    k=5,
-                ):
-                    complaint_id = match["complaint_id"]
-                    previous = matches_by_id.get(complaint_id)
+            for match in search_similar_cases_retrieval(
+                text=safe_message,
+                country=country,
+                k=5,
+            ):
+                complaint_id = match["complaint_id"]
+                previous = matches_by_id.get(complaint_id)
 
-                    if previous is None or match["score"] > previous["score"]:
-                        matches_by_id[complaint_id] = match
-        except RuntimeError as error:
-            if "RETRIEVAL_BASE_URL is not configured" not in str(error):
-                raise HTTPException(
-                    status_code=502,
-                    detail=get_prompt_config()["FAILURE_MESSAGE"][language],
-                ) from error
-            similar_matches = []
-        except Exception as error:
-            raise HTTPException(
-                status_code=502,
-                detail=get_prompt_config()["FAILURE_MESSAGE"][language],
-            ) from error
+                if previous is None or match["score"] > previous["score"]:
+                    matches_by_id[complaint_id] = match
+        except Exception:
+            logger.exception(
+                "Retrieval request failed; continuing without historical matches"
+            )
+            matches_by_id = {}
 
         similar_matches = sorted(
             matches_by_id.values(),
@@ -459,14 +437,21 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             reverse=True,
         )[:5]
 
-    complaint_rows = (
-        get_historical_complaints(
-            [item["complaint_id"] for item in similar_matches],
-            country,
+    try:
+        complaint_rows = (
+            get_historical_complaints(
+                [item["complaint_id"] for item in similar_matches],
+                country,
+            )
+            if country and similar_matches
+            else []
         )
-        if country and similar_matches
-        else []
-    )
+    except Exception:
+        logger.exception(
+            "Historical complaint lookup failed; continuing without historical matches"
+        )
+        similar_matches = []
+        complaint_rows = []
     complaints_by_id = {
         row["complaint_id"]: row
         for row in complaint_rows

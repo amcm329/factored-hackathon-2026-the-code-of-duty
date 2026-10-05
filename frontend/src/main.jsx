@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
+  Bot,
   CalendarDays,
   ChevronDown,
   CreditCard,
@@ -11,24 +12,18 @@ import {
   LogOut,
   MapPin,
   MessageCircle,
-  Paperclip,
   Send,
   ShoppingBag,
   UserRound,
   WalletCards,
 } from 'lucide-react'
 import './styles.css'
-import hermesLogo from './assets/hermes-logo.png'
-import hermesIcon from './assets/hermes-icon.png'
 import {
   create_dispute,
   get_welcome_message,
   list_transactions,
-  process_evidence,
-  request_evidence_upload,
   send_chat,
   send_satisfaction_feedback,
-  upload_evidence_pdf,
 } from '../api'
 import {
   get_current_username,
@@ -38,11 +33,70 @@ import {
 } from '../auth'
 
 const language_storage_key = 'factored_language'
-const max_evidence_files = 3
+const personal_dispute_signals = [
+  "i don't recognize",
+  'i do not recognize',
+  'i want to dispute',
+  'i need to dispute',
+  'not my transaction',
+  'not my purchase',
+  'unauthorized transaction',
+  'unauthorised transaction',
+  'unauthorized charge',
+  'unauthorised charge',
+  'my card was charged',
+  'charged my card',
+  'dispute this transaction',
+  'open a dispute',
+  "this transaction isn't mine",
+  'this transaction is not mine',
+  'no reconozco',
+  'quiero disputar',
+  'necesito disputar',
+  'no es mi transacción',
+  'no es mi transaccion',
+  'no es mi compra',
+  'cargo no reconocido',
+  'transacción no reconocida',
+  'transaccion no reconocida',
+  'compra no reconocida',
+  'cargaron mi tarjeta',
+  'me cobraron',
+  'disputar esta transacción',
+  'disputar esta transaccion',
+  'abrir una disputa',
+  'desconozco este cargo',
+  'desconozco esta transacción',
+  'desconozco esta transaccion',
+  'este cargo no es mío',
+  'este cargo no es mio',
+  'quiero reportar este cargo',
+  'quiero escalar con un humano',
+  'quiero hablar con un humano',
+  'quiero hablar con una persona',
+  'quiero un representante',
+  'não reconheço',
+  'quero contestar',
+  'preciso contestar',
+  'nao reconheco',
+  'não é minha transação',
+  'nao e minha transacao',
+  'transação não reconhecida',
+  'transacao nao reconhecida',
+  'compra não reconhecida',
+  'compra nao reconhecida',
+  'me cobraram',
+  'cobraram meu cartão',
+  'cobraram meu cartao',
+  'contestar esta transação',
+  'contestar esta transacao',
+  'abrir uma contestação',
+  'abrir uma contestacao',
+]
 
 const copy = {
   en: {
-    title: 'Hermes',
+    title: 'AI Dispute Assistant',
     subtitle: 'Help with disputed or unrecognized transactions',
     disputes: 'Disputes',
     guest: 'Guest mode',
@@ -80,7 +134,7 @@ const copy = {
     requestFailed: 'The request could not be completed. Please try again.',
   },
   es: {
-    title: 'Hermes',
+    title: 'Asistente de Disputas con IA',
     subtitle: 'Ayuda con transacciones disputadas o no reconocidas',
     disputes: 'Disputas',
     guest: 'Modo invitado',
@@ -118,7 +172,7 @@ const copy = {
     requestFailed: 'No se pudo completar la solicitud. Inténtalo de nuevo.',
   },
   pt: {
-    title: 'Hermes',
+    title: 'Assistente de Contestação com IA',
     subtitle: 'Ajuda com transações contestadas ou não reconhecidas',
     disputes: 'Contestações',
     guest: 'Modo convidado',
@@ -157,10 +211,19 @@ const copy = {
   },
 }
 
+function looksPersonalDispute(value) {
+  const normalized = String(value || '').toLowerCase().replace(/’/g, "'").replace(/\s+/g, ' ').trim()
+  return personal_dispute_signals.some((signal) => normalized.includes(signal))
+}
+
 function Brand() {
   return (
     <div className="brand">
-      <img className="brand-logo" src={hermesLogo} alt="Hermes" />
+      <div className="brand-mark"><span /><span /></div>
+      <div>
+        <div className="brand-title">YourBank</div>
+        <div className="brand-subtitle">Demo Bank</div>
+      </div>
     </div>
   )
 }
@@ -237,7 +300,7 @@ function Header({ t, language, onLanguage, authenticated, customerId, onLogin, o
   return (
     <header className="topbar">
       <div className="assistant-heading">
-        <div className="assistant-icon"><img src={hermesIcon} alt="" /></div>
+        <div className="assistant-icon"><Bot size={34} /></div>
         <div><h1>{t.title}</h1><p>{t.subtitle}</p></div>
       </div>
       <div className="topbar-actions">
@@ -344,9 +407,7 @@ function TransactionDetails({ t, authenticated, transaction, onLogin }) {
 function Chat({ t, language, authenticated, transaction, onTransaction, onRequireLogin }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [evidenceIds, setEvidenceIds] = useState([])
   const [interactionId] = useState(() => crypto.randomUUID())
-  const [isUploadingEvidence, setIsUploadingEvidence] = useState(false)
   const [interactionFinished, setInteractionFinished] = useState(false)
   const [awaitingFeedback, setAwaitingFeedback] = useState(false)
   const [pendingDisputeReason, setPendingDisputeReason] = useState('')
@@ -426,7 +487,6 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
         message,
         language,
         history,
-        evidenceIds,
         interactionId,
       )
 
@@ -500,43 +560,6 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
     textarea.style.overflowY = textarea.scrollHeight > 140 ? 'auto' : 'hidden'
   }
 
-  async function handleEvidenceFile(file) {
-    if (!file || interactionFinished || awaitingFeedback) return
-
-    if (!authenticated) {
-      onRequireLogin()
-      return
-    }
-
-    if (evidenceIds.length >= max_evidence_files) {
-      addBot(t.evidenceLimit)
-      return
-    }
-
-    if (file.type !== 'application/pdf') {
-      addBot('Only PDF evidence is allowed')
-      return
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      addBot('PDF must be 10 MB or smaller')
-      return
-    }
-
-    setIsUploadingEvidence(true)
-
-    try {
-      const upload = await request_evidence_upload(file)
-      await upload_evidence_pdf(file, upload)
-      await process_evidence(upload.evidence_id)
-      setEvidenceIds((current) => [...current, upload.evidence_id])
-    } catch (error) {
-      showError(error)
-    } finally {
-      setIsUploadingEvidence(false)
-    }
-  }
-
   async function submit(event) {
     event.preventDefault()
 
@@ -547,6 +570,12 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
     const history = currentHistory()
     addUser(value)
     setInput('')
+
+    if (!authenticated && looksPersonalDispute(value)) {
+      setPendingLoginRequest({ message: value, history })
+      onRequireLogin()
+      return
+    }
 
     await processChatMessage(value, history)
   }
@@ -598,7 +627,6 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
         reason: pendingDisputeReason,
         language,
         interaction_id: interactionId,
-        evidence_ids: evidenceIds,
       })
 
       if (result.response) {
@@ -622,7 +650,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
       <div className="messages" ref={messagesRef}>
         {messages.map((message, index) => (
           <div className={`message-row ${message.from}`} key={`${message.from}-${index}`}>
-            {message.from === 'bot' && <div className="bot-avatar"><img src={hermesIcon} alt="" /></div>}
+            {message.from === 'bot' && <div className="bot-avatar"><Bot size={24} /></div>}
             <div className="message-stack">
               <div className={`message-bubble ${message.from}`}>{message.text}</div>
               <span className="message-time">{message.time}</span>
@@ -659,24 +687,6 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRequir
       </div>
 
       <form className="composer" onSubmit={submit}>
-        <label className="attach-button" aria-label="Attach evidence">
-          <Paperclip size={26} />
-          <input
-            type="file"
-            accept="application/pdf"
-            hidden
-            disabled={isUploadingEvidence || composerDisabled || evidenceIds.length >= max_evidence_files}
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-
-              if (file) {
-                handleEvidenceFile(file)
-              }
-
-              event.target.value = ''
-            }}
-          />
-        </label>
         <textarea
           ref={composerRef}
           value={input}

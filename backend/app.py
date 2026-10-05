@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import unicodedata
 from datetime import date, datetime, timedelta
@@ -278,6 +279,20 @@ def _country_local_now(country):
     return datetime.now(ZoneInfo(timezone_name))
 
 
+def _dispute_reference_date(country):
+    """Return the configured dispute reference date or the current local date."""
+
+    demo_mode = os.getenv("DEMO_MODE", "0").strip() == "1"
+    demo_reference_date = os.getenv("DEMO_REFERENCE_DATE", "").strip()
+
+    if demo_mode:
+        if not demo_reference_date:
+            raise RuntimeError("DEMO_REFERENCE_DATE is required when DEMO_MODE=1")
+        return date.fromisoformat(demo_reference_date)
+
+    return _country_local_now(country).date()
+
+
 def _country_policy(country):
     """Return the configured dispute-window policy for a customer's country."""
 
@@ -309,7 +324,7 @@ def _subtract_business_days(reference_date, days):
 def _country_policy_cutoff(country, reference_date=None):
     """Return the earliest currently disputable date using the configured country policy."""
 
-    reference_date = reference_date or _country_local_now(country).date()
+    reference_date = reference_date or _dispute_reference_date(country)
     policy = _country_policy(country)
     days = policy["days"]
     window_type = policy["type"]
@@ -336,7 +351,7 @@ def _transaction_is_currently_disputable(transaction, country):
     transaction_date = _transaction_date_value(transaction)
     if transaction_date is None:
         return False
-    today = _country_local_now(country).date()
+    today = _dispute_reference_date(country)
     cutoff = _country_policy_cutoff(country, reference_date=today)
     return cutoff <= transaction_date <= today
 
@@ -533,7 +548,7 @@ def _policy_context_message(country, language):
     else:
         raise RuntimeError(f"Unsupported dispute policy window type: {window_type}")
 
-    return {
+    messages = {
         "en": (
             f"As of {timestamp} local time, you are registered in {country}. "
             f"The maximum dispute period is {days} {units['en']}."
@@ -546,7 +561,34 @@ def _policy_context_message(country, language):
             f"Em {timestamp}, horário local, você está registrado em {country}. "
             f"O prazo máximo para contestação é de {days} {units['pt']}."
         ),
-    }[language]
+    }
+
+    if os.getenv("DEMO_MODE", "0").strip() == "1":
+        reference_date = _dispute_reference_date(country)
+        cutoff_date = _country_policy_cutoff(
+            country,
+            reference_date=reference_date,
+        )
+        demo_messages = {
+            "en": (
+                f" DEMO: to keep the prototype consistent with the available dataset period, "
+                f"eligibility is evaluated using {reference_date.isoformat()} as the reference date, "
+                f"with a demo threshold of {cutoff_date.isoformat()}."
+            ),
+            "es": (
+                f" DEMO: para mantener el prototipo coherente con el período disponible del dataset, "
+                f"la elegibilidad se evalúa usando {reference_date.isoformat()} como fecha de referencia, "
+                f"con un umbral de demo de {cutoff_date.isoformat()}."
+            ),
+            "pt": (
+                f" DEMO: para manter o protótipo coerente com o período disponível do dataset, "
+                f"a elegibilidade é avaliada usando {reference_date.isoformat()} como data de referência, "
+                f"com um limite de demonstração de {cutoff_date.isoformat()}."
+            ),
+        }
+        messages[language] += demo_messages[language]
+
+    return messages[language]
 
 
 def _case_history_message(cases, language, country):
@@ -621,7 +663,7 @@ def transactions(customer_context=Depends(get_current_customer_context)):
 
     customer_id = customer_context["customer_id"]
     country = customer_context["country"]
-    today = _country_local_now(country).date()
+    today = _dispute_reference_date(country)
     cutoff = _country_policy_cutoff(country, reference_date=today)
     return {
         "transactions": get_customer_transactions(
@@ -812,7 +854,7 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         try:
-            cutoff = _country_policy_cutoff(country, reference_date=_country_local_now(country).date())
+            cutoff = _country_policy_cutoff(country, reference_date=_dispute_reference_date(country))
             case = get_customer_case(
                 customer_id=customer_id,
                 case_id=requested_case_id,
@@ -860,7 +902,7 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         try:
-            cutoff = _country_policy_cutoff(country, reference_date=_country_local_now(country).date())
+            cutoff = _country_policy_cutoff(country, reference_date=_dispute_reference_date(country))
             cases = get_customer_case_history(
                 customer_id=customer_id,
                 limit=20,
@@ -894,7 +936,7 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         start_date, end_date = _extract_iso_date_range(message)
-        today = _country_local_now(country).date()
+        today = _dispute_reference_date(country)
         policy_cutoff = _country_policy_cutoff(country, reference_date=today)
         effective_start = max(filter(None, [start_date, policy_cutoff]))
         effective_end = min(filter(None, [end_date, today])) if end_date else today

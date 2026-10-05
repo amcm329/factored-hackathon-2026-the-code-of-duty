@@ -1,6 +1,8 @@
+import json
 import uuid
 from functools import lru_cache
 
+import boto3
 from sqlalchemy import bindparam, create_engine, text
 
 from backend.secrets import get_database_url
@@ -14,6 +16,22 @@ def get_engine():
         get_database_url(),
         pool_pre_ping=True,
     )
+
+
+@lru_cache(maxsize=1)
+def get_database_country_names():
+    """Reads and caches database country names from AWS Secrets Manager."""
+
+    client = boto3.client("secretsmanager", region_name="us-east-1")
+    response = client.get_secret_value(SecretId="factored/database-country-names")
+    return json.loads(response["SecretString"])
+
+
+def get_database_country_name(country):
+    """Returns the database country name for an incoming country value."""
+
+    normalized_country = str(country or "").strip().lower()
+    return get_database_country_names().get(normalized_country, country)
 
 
 def get_historical_complaints(complaint_ids, country):
@@ -45,12 +63,14 @@ def get_historical_complaints(complaint_ids, country):
         )
     )
 
+    database_country = get_database_country_name(country)
+
     with get_engine().connect() as connection:
         rows = connection.execute(
             query,
             {
                 "complaint_ids": complaint_ids,
-                "country": country,
+                "country": database_country,
             },
         ).mappings().all()
 

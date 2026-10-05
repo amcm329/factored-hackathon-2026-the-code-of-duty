@@ -8,6 +8,7 @@ import boto3
 import pandas as pd
 from psycopg2 import sql
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.sql.sqltypes import Integer
 
 from backend.secrets import get_database_url, get_organizer_s3_config
 
@@ -312,6 +313,50 @@ def validate_target_table(engine, table_name, csv_columns):
         )
 
 
+def _normalize_frame_for_postgres(engine, table_name, frame):
+    """Normalize pandas dtypes to the existing PostgreSQL table schema before COPY.
+
+    Pandas promotes nullable integer CSV columns to float (for example 701 ->
+    701.0). PostgreSQL COPY into an INTEGER column rejects the textual value
+    "701.0". Convert every PostgreSQL integer column back to pandas nullable
+    integer dtype so CSV serialization writes "701" while preserving NULLs.
+    """
+    if frame.empty:
+        return frame
+
+    inspector = inspect(engine)
+    integer_columns = [
+        column["name"]
+        for column in inspector.get_columns(table_name)
+        if isinstance(column["type"], Integer)
+        and column["name"] in frame.columns
+    ]
+
+    for column_name in integer_columns:
+        numeric = pd.to_numeric(frame[column_name], errors="coerce")
+
+        original_non_null = frame[column_name].notna()
+        invalid_mask = original_non_null & numeric.isna()
+        if invalid_mask.any():
+            bad_value = frame.loc[invalid_mask, column_name].iloc[0]
+            raise ValueError(
+                f"{table_name}.{column_name} contains a non-numeric value "
+                f"that cannot be loaded into PostgreSQL INTEGER: {bad_value!r}"
+            )
+
+        non_integral_mask = numeric.notna() & ((numeric % 1).abs() > 1e-9)
+        if non_integral_mask.any():
+            bad_value = frame.loc[non_integral_mask, column_name].iloc[0]
+            raise ValueError(
+                f"{table_name}.{column_name} contains a non-integral value "
+                f"that cannot be loaded into PostgreSQL INTEGER: {bad_value!r}"
+            )
+
+        frame[column_name] = numeric.round().astype("Int64")
+
+    return frame
+
+
 def _filter_selected_days(frame, table_name):
     """Apply the day-of-month filter when the S3 key itself was not enough."""
     if table_name not in fact_tables or frame.empty:
@@ -427,6 +472,11 @@ def ingest_csv_object(
         )
 
         if not output.empty:
+            output = _normalize_frame_for_postgres(
+                engine=engine,
+                table_name=table_name,
+                frame=output,
+            )
             inserted_rows += writer.write(output)
 
         if ordinary_accepted >= ordinary_quota:

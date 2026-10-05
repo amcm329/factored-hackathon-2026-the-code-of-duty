@@ -314,20 +314,49 @@ def validate_target_table(engine, table_name, csv_columns):
 
 
 def _normalize_frame_for_postgres(engine, table_name, frame):
-    """Normalize pandas dtypes to the existing PostgreSQL table schema before COPY.
+    """Validate required values and normalize pandas dtypes before PostgreSQL COPY.
 
-    Pandas promotes nullable integer CSV columns to float (for example 701 ->
-    701.0). PostgreSQL COPY into an INTEGER column rejects the textual value
-    "701.0". Convert every PostgreSQL integer column back to pandas nullable
-    integer dtype so CSV serialization writes "701" while preserving NULLs.
+    The organizer data can contain malformed source rows.  PostgreSQL must not be
+    weakened to accept them.  Rows with NULL values in columns declared NOT NULL
+    in the target table are skipped before quota accounting, and nullable INTEGER
+    columns promoted by pandas to float (for example 701 -> 701.0) are converted
+    back to nullable integer dtype so COPY serializes them as 701.
     """
     if frame.empty:
         return frame
 
     inspector = inspect(engine)
+    database_columns = inspector.get_columns(table_name)
+
+    required_columns = [
+        column["name"]
+        for column in database_columns
+        if not column.get("nullable", True)
+        and column["name"] in frame.columns
+    ]
+
+    if required_columns:
+        missing_required = frame[required_columns].isna()
+        invalid_rows = missing_required.any(axis=1)
+        if invalid_rows.any():
+            counts = {
+                column_name: int(missing_required[column_name].sum())
+                for column_name in required_columns
+                if missing_required[column_name].any()
+            }
+            dropped = int(invalid_rows.sum())
+            print(
+                f"Skipping {dropped:,} invalid {table_name} row(s) with NULL "
+                f"in NOT NULL column(s): {counts}"
+            )
+            frame = frame.loc[~invalid_rows].copy()
+
+    if frame.empty:
+        return frame
+
     integer_columns = [
         column["name"]
-        for column in inspector.get_columns(table_name)
+        for column in database_columns
         if isinstance(column["type"], Integer)
         and column["name"] in frame.columns
     ]
@@ -441,6 +470,18 @@ def ingest_csv_object(
         if chunk.empty:
             continue
 
+        # Normalize and reject malformed source rows BEFORE quota accounting.
+        # This prevents a bad row (for example a NULL call_transcripts.duration_seconds)
+        # from consuming sample quota or aborting PostgreSQL COPY.
+        chunk = _normalize_frame_for_postgres(
+            engine=engine,
+            table_name=table_name,
+            frame=chunk,
+        )
+
+        if chunk.empty:
+            continue
+
         priority_rows, ordinary_rows = _split_priority_rows(chunk)
 
         # Avoid writing the same priority primary-key row twice when source
@@ -472,11 +513,6 @@ def ingest_csv_object(
         )
 
         if not output.empty:
-            output = _normalize_frame_for_postgres(
-                engine=engine,
-                table_name=table_name,
-                frame=output,
-            )
             inserted_rows += writer.write(output)
 
         if ordinary_accepted >= ordinary_quota:

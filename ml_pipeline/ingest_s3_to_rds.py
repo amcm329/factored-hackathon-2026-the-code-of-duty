@@ -1,20 +1,26 @@
 from io import StringIO
 import math
 import os
+import re
 from pathlib import Path, PurePosixPath
 
 import boto3
 import pandas as pd
 from psycopg2 import sql
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 from backend.secrets import get_database_url, get_organizer_s3_config
 
 
-# Designed for a fast hackathon load on the current Worker/RDS sizing.
-# Customers stay complete so every authenticated customer can still be resolved.
-# Large tables are reduced before they are written to PostgreSQL.
-read_chunk_size = 50000
+# Fast hackathon ingestion profile.
+# Large fact tables keep only the 5th, 15th, and 25th of each month and are
+# additionally capped across the complete date range.
+read_chunk_size = int(os.getenv("INGEST_READ_CHUNK_SIZE", "50000"))
+selected_days = {
+    int(value)
+    for value in os.getenv("INGEST_SELECTED_DAYS", "5,15,25").split(",")
+    if value.strip()
+}
 
 organizer_tables = [
     "customers",
@@ -30,32 +36,19 @@ table_order = {
     for index, table_name in enumerate(organizer_tables)
 }
 
-# Hard safety caps for the one-time RDS load.
-# Override any value with an environment variable if a larger sample is needed.
+# Dimensions remain sufficiently complete for the application; fact tables are
+# intentionally small enough for the complete pipeline to finish quickly.
 row_limits = {
     "customers": int(os.getenv("INGEST_CUSTOMERS_MAX_ROWS", "150000")),
-    "products": int(os.getenv("INGEST_PRODUCTS_MAX_ROWS", "50000")),
-    "transactions": int(os.getenv("INGEST_TRANSACTIONS_MAX_ROWS", "500000")),
+    "products": int(os.getenv("INGEST_PRODUCTS_MAX_ROWS", "20000")),
+    "transactions": int(os.getenv("INGEST_TRANSACTIONS_MAX_ROWS", "50000")),
     "call_center_interactions": int(
-        os.getenv("INGEST_INTERACTIONS_MAX_ROWS", "80000")
+        os.getenv("INGEST_INTERACTIONS_MAX_ROWS", "8000")
     ),
-    "call_transcripts": int(os.getenv("INGEST_TRANSCRIPTS_MAX_ROWS", "20000")),
-    "complaints": int(os.getenv("INGEST_COMPLAINTS_MAX_ROWS", "8000")),
+    "call_transcripts": int(os.getenv("INGEST_TRANSCRIPTS_MAX_ROWS", "2000")),
+    "complaints": int(os.getenv("INGEST_COMPLAINTS_MAX_ROWS", "800")),
 }
 
-# Approximate share of source data to inspect for each table. When a fact table
-# is date-partitioned, this is applied to partition files before downloading them.
-# If a table is a single CSV, deterministic row sampling is used instead.
-sample_fractions = {
-    "customers": 1.00,
-    "products": 0.125,
-    "transactions": 0.10,
-    "call_center_interactions": 0.10,
-    "call_transcripts": 0.10,
-    "complaints": 0.10,
-}
-
-# Large fact tables documented as date-partitioned by the organizer.
 fact_tables = {
     "transactions",
     "call_center_interactions",
@@ -63,9 +56,28 @@ fact_tables = {
     "complaints",
 }
 
+date_columns = {
+    "transactions": "process_date",
+    "call_center_interactions": "process_date",
+    "call_transcripts": "process_date",
+    "complaints": "process_date",
+}
+
+# Current synthetic demo customers. Rows for these customers are retained when
+# they occur inside the selected date partitions, even if the ordinary quota for
+# that partition has already been reached.
+priority_customer_ids = {
+    value.strip().upper()
+    for value in os.getenv(
+        "INGEST_PRIORITY_CUSTOMER_IDS",
+        "CLI-G4X2AMVD62NR,CLI-F2DZJYU0POJ9,CLI-8WU28O74XKHS",
+    ).split(",")
+    if value.strip()
+}
+
 
 class PostgresBulkWriter:
-    """Fast COPY -> temporary table -> ON CONFLICT DO NOTHING writer."""
+    """COPY into a temporary table, then insert while ignoring conflicts."""
 
     def __init__(self, engine, table_name):
         self.connection = engine.raw_connection()
@@ -73,9 +85,6 @@ class PostgresBulkWriter:
         self.table_name = table_name
         self.stage_name = f"_stage_{table_name}_{os.getpid()}"
         self.columns = None
-
-        # Safe here because the organizer data is reproducible and can be reloaded.
-        # This changes durability only for this ingestion session, not globally.
         self.cursor.execute("SET synchronous_commit TO OFF")
 
     def _initialize(self, columns):
@@ -140,7 +149,7 @@ class PostgresBulkWriter:
                 buffer,
             )
             self.cursor.execute(insert_statement)
-            inserted_rows = self.cursor.rowcount
+            inserted_rows = max(self.cursor.rowcount, 0)
             self.cursor.execute(
                 sql.SQL("TRUNCATE TABLE {}").format(
                     sql.Identifier(self.stage_name)
@@ -160,7 +169,7 @@ class PostgresBulkWriter:
 
 
 def create_organizer_s3_client():
-    """Create the read-only organizer S3 client."""
+    """Create the organizer read-only S3 client."""
     config = get_organizer_s3_config()
 
     return boto3.client(
@@ -172,7 +181,7 @@ def create_organizer_s3_client():
 
 
 def infer_table_name(key, prefix):
-    """Infer the target RDS table from an organizer S3 CSV key."""
+    """Infer the destination table from a root CSV or partitioned key."""
     relative_key = key[len(prefix):].lstrip("/")
     parts = PurePosixPath(relative_key).parts
 
@@ -182,8 +191,27 @@ def infer_table_name(key, prefix):
     return parts[0]
 
 
+def _partition_day_from_key(key):
+    """Return a day-of-month encoded in a common year/month/day S3 path."""
+    patterns = [
+        r"(?:^|/)day[=_-]?(\d{1,2})(?:/|$)",
+        r"(?:^|/)dd[=_-]?(\d{1,2})(?:/|$)",
+        r"(?:^|/)20\d{2}/\d{1,2}/(\d{1,2})(?:/|$)",
+        r"(?:^|/)20\d{2}-\d{1,2}-(\d{1,2})(?:/|_|\.)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, key, flags=re.IGNORECASE)
+        if match:
+            day = int(match.group(1))
+            if 1 <= day <= 31:
+                return day
+
+    return None
+
+
 def run_schema_scripts(engine):
-    """Create the dispute-workflow RDS tables before ingestion."""
+    """Create the six organizer tables plus application tables."""
     sql_dir = Path(__file__).resolve().parents[1] / "backend" / "sql"
     sql_files = sorted(sql_dir.glob("*.sql"))
 
@@ -195,6 +223,17 @@ def run_schema_scripts(engine):
             sql_text = sql_file.read_text(encoding="utf-8")
             connection.exec_driver_sql(sql_text)
             print(f"Applied schema: {sql_file.name}")
+
+
+def reset_organizer_tables(engine):
+    """Optionally clear old organizer data before a reproducible sampled load."""
+    if os.getenv("INGEST_RESET_EXISTING", "0").strip() not in {"1", "true", "TRUE"}:
+        return
+
+    with engine.begin() as connection:
+        for table_name in reversed(organizer_tables):
+            connection.execute(text(f'TRUNCATE TABLE "{table_name}"'))
+            print(f"Cleared existing table: {table_name}")
 
 
 def list_csv_keys(s3, bucket, prefix):
@@ -210,7 +249,6 @@ def list_csv_keys(s3, bucket, prefix):
                 continue
 
             table_name = infer_table_name(key, prefix)
-
             if table_name in table_order:
                 keys.append(key)
 
@@ -223,56 +261,39 @@ def list_csv_keys(s3, bucket, prefix):
     )
 
 
-def _evenly_spaced_keys(keys, fraction):
-    """Select partition keys across the full sorted date range."""
-    if not keys or fraction >= 1.0 or len(keys) == 1:
+def _select_keys_for_table(table_name, keys):
+    """Keep only selected day partitions when the key exposes day metadata."""
+    if table_name not in fact_tables:
         return list(keys)
 
-    target_count = max(1, int(math.ceil(len(keys) * fraction)))
+    parsed = [
+        (key, _partition_day_from_key(key))
+        for key in keys
+    ]
+    parsed_days = [day for _, day in parsed if day is not None]
 
-    # Avoid selecting only one point in time when a small number of partitions
-    # exists; use beginning/middle/end whenever possible.
-    if len(keys) >= 3:
-        target_count = max(3, target_count)
+    # If the organizer key naming does not expose a day, retain the objects and
+    # filter rows by process_date while streaming them.
+    if not parsed_days:
+        return list(keys)
 
-    target_count = min(target_count, len(keys))
+    selected = [
+        key
+        for key, day in parsed
+        if day in selected_days
+    ]
 
-    if target_count == 1:
-        return [keys[len(keys) // 2]]
-
-    indexes = []
-    for position in range(target_count):
-        index = round(
-            position * (len(keys) - 1) / (target_count - 1)
+    if not selected:
+        raise RuntimeError(
+            f"No {table_name} partitions matched selected days "
+            f"{sorted(selected_days)}"
         )
-        indexes.append(index)
 
-    return [keys[index] for index in sorted(set(indexes))]
-
-
-def _deterministic_row_sample(frame, fraction):
-    """Sample one single-file table deterministically before RDS insertion."""
-    if fraction >= 1.0 or frame.empty:
-        return frame
-
-    # customer_id keeps related single-file tables on the same customer cohort.
-    if "customer_id" in frame.columns:
-        sample_key = frame["customer_id"].astype(str)
-    else:
-        sample_key = frame.iloc[:, 0].astype(str)
-
-    hashes = pd.util.hash_pandas_object(
-        sample_key,
-        index=False,
-    ).astype("uint64")
-
-    threshold = int(fraction * 1_000_000)
-    mask = (hashes % 1_000_000) < threshold
-    return frame.loc[mask]
+    return selected
 
 
 def validate_target_table(engine, table_name, csv_columns):
-    """Verify the target table exists and supports all incoming columns."""
+    """Verify the target table exists and supports all CSV columns."""
     inspector = inspect(engine)
 
     if not inspector.has_table(table_name):
@@ -284,12 +305,48 @@ def validate_target_table(engine, table_name, csv_columns):
     }
 
     missing_columns = set(csv_columns) - database_columns
-
     if missing_columns:
         raise RuntimeError(
             f"{table_name} contains CSV columns missing from the RDS schema: "
             f"{sorted(missing_columns)}"
         )
+
+
+def _filter_selected_days(frame, table_name):
+    """Apply the day-of-month filter when the S3 key itself was not enough."""
+    if table_name not in fact_tables or frame.empty:
+        return frame
+
+    date_column = date_columns[table_name]
+    if date_column not in frame.columns:
+        return frame
+
+    parsed_dates = pd.to_datetime(frame[date_column], errors="coerce")
+    return frame.loc[parsed_dates.dt.day.isin(selected_days)]
+
+
+def _filter_relationships(frame, table_name, allowed_interaction_ids):
+    """Ensure transcript rows still join to the sampled interactions."""
+    if (
+        table_name == "call_transcripts"
+        and allowed_interaction_ids is not None
+        and "interaction_id" in frame.columns
+    ):
+        return frame.loc[
+            frame["interaction_id"].astype(str).isin(allowed_interaction_ids)
+        ]
+
+    return frame
+
+
+def _split_priority_rows(frame):
+    """Separate current demo-customer rows from ordinary quota-controlled rows."""
+    if frame.empty or "customer_id" not in frame.columns or not priority_customer_ids:
+        return frame.iloc[0:0], frame
+
+    normalized = frame["customer_id"].astype(str).str.upper()
+    priority_mask = normalized.isin(priority_customer_ids)
+    return frame.loc[priority_mask], frame.loc[~priority_mask]
 
 
 def ingest_csv_object(
@@ -299,26 +356,22 @@ def ingest_csv_object(
     bucket,
     prefix,
     key,
-    max_rows,
-    row_sample_fraction,
+    table_name,
+    ordinary_quota,
+    allowed_interaction_ids=None,
 ):
-    """Stream a bounded source sample directly from S3 into RDS."""
-    table_name = infer_table_name(key, prefix)
-
+    """Stream one source object, keeping only the configured reduced sample."""
     print(
         f"Loading s3://{bucket}/{key} -> {table_name} "
-        f"(object cap={max_rows:,})"
+        f"(ordinary object quota={ordinary_quota:,})"
     )
 
-    response = s3.get_object(
-        Bucket=bucket,
-        Key=key,
-    )
-
+    response = s3.get_object(Bucket=bucket, Key=key)
     body = response["Body"]
     first_chunk = True
-    accepted_rows = 0
+    ordinary_accepted = 0
     inserted_rows = 0
+    priority_seen = set()
 
     for chunk in pd.read_csv(
         body,
@@ -333,34 +386,73 @@ def ingest_csv_object(
             )
             first_chunk = False
 
-        chunk = _deterministic_row_sample(
+        chunk = _filter_selected_days(chunk, table_name)
+        chunk = _filter_relationships(
             chunk,
-            row_sample_fraction,
+            table_name,
+            allowed_interaction_ids,
         )
 
         if chunk.empty:
             continue
 
-        remaining = max_rows - accepted_rows
-        if remaining <= 0:
-            break
+        priority_rows, ordinary_rows = _split_priority_rows(chunk)
 
-        chunk = chunk.iloc[:remaining]
-        accepted_rows += len(chunk)
-        inserted_rows += writer.write(chunk)
+        # Avoid writing the same priority primary-key row twice when source
+        # duplicates exist. Database ON CONFLICT remains the final guard.
+        primary_key_candidates = {
+            "transactions": "transaction_id",
+            "call_center_interactions": "interaction_id",
+            "call_transcripts": "transcript_id",
+            "complaints": "complaint_id",
+        }
+        priority_pk = primary_key_candidates.get(table_name)
+        if priority_pk and priority_pk in priority_rows.columns:
+            keep_mask = []
+            for value in priority_rows[priority_pk].astype(str):
+                if value in priority_seen:
+                    keep_mask.append(False)
+                else:
+                    priority_seen.add(value)
+                    keep_mask.append(True)
+            priority_rows = priority_rows.loc[keep_mask]
 
-        if accepted_rows >= max_rows:
-            break
+        remaining = max(ordinary_quota - ordinary_accepted, 0)
+        ordinary_rows = ordinary_rows.iloc[:remaining]
+        ordinary_accepted += len(ordinary_rows)
+
+        output = pd.concat(
+            [priority_rows, ordinary_rows],
+            ignore_index=True,
+        )
+
+        if not output.empty:
+            inserted_rows += writer.write(output)
+
+        if ordinary_accepted >= ordinary_quota:
+            # Continue only if priority rows could still matter in later chunks.
+            # For dimensions we do not use the priority exception.
+            if table_name not in fact_tables or not priority_customer_ids:
+                break
 
     print(
         f"Finished object: {table_name}; "
-        f"selected={accepted_rows:,}; inserted={inserted_rows:,}"
+        f"ordinary accepted={ordinary_accepted:,}; inserted={inserted_rows:,}"
     )
-    return accepted_rows, inserted_rows
+    return ordinary_accepted, inserted_rows
+
+
+def _load_sampled_interaction_ids(engine):
+    """Read the small sampled interaction-ID set for transcript filtering."""
+    frame = pd.read_sql(
+        "SELECT interaction_id FROM call_center_interactions",
+        engine,
+    )
+    return set(frame["interaction_id"].astype(str))
 
 
 def main():
-    """Create schema and ingest a bounded, representative workflow dataset."""
+    """Create schema and ingest the fast date-partitioned sample into RDS."""
     config = get_organizer_s3_config()
     bucket = config["BUCKET_NAME"]
     prefix = config.get("DATA_PREFIX", "data/")
@@ -371,99 +463,84 @@ def main():
     )
 
     run_schema_scripts(engine)
+    reset_organizer_tables(engine)
+
     s3 = create_organizer_s3_client()
+    all_keys = list_csv_keys(s3=s3, bucket=bucket, prefix=prefix)
 
-    csv_keys = list_csv_keys(
-        s3=s3,
-        bucket=bucket,
-        prefix=prefix,
-    )
-
-    if not csv_keys:
+    if not all_keys:
         raise RuntimeError(
             f"No dispute-workflow organizer CSV files found under "
             f"s3://{bucket}/{prefix}"
         )
 
     keys_by_table = {
-        table_name: []
+        table_name: [
+            key
+            for key in all_keys
+            if infer_table_name(key, prefix) == table_name
+        ]
         for table_name in organizer_tables
     }
 
-    for key in csv_keys:
-        keys_by_table[infer_table_name(key, prefix)].append(key)
-
     for table_name in organizer_tables:
         source_keys = keys_by_table[table_name]
-
         if not source_keys:
-            raise RuntimeError(
-                f"No organizer CSV objects found for required table: {table_name}"
-            )
+            raise RuntimeError(f"No organizer CSV found for {table_name}")
 
-        fraction = sample_fractions[table_name]
-
-        if table_name in fact_tables and len(source_keys) > 1:
-            selected_keys = _evenly_spaced_keys(
-                source_keys,
-                fraction,
-            )
-            # Partition selection already reduces the source before download.
-            row_sample_fraction = 1.0
-        else:
-            selected_keys = source_keys
-            # Single-file tables are reduced deterministically inside each chunk.
-            row_sample_fraction = fraction
-
+        selected_keys = _select_keys_for_table(table_name, source_keys)
         table_limit = row_limits[table_name]
-        per_object_limit = int(
-            math.ceil(table_limit / len(selected_keys))
-        )
+        writer = PostgresBulkWriter(engine, table_name)
+        accepted_total = 0
+        inserted_total = 0
 
-        print(
-            f"\n{table_name}: source_objects={len(source_keys)}, "
-            f"selected_objects={len(selected_keys)}, "
-            f"row_cap={table_limit:,}, "
-            f"row_sample_fraction={row_sample_fraction:.3f}"
-        )
-
-        writer = PostgresBulkWriter(
-            engine=engine,
-            table_name=table_name,
-        )
-
-        total_selected = 0
-        total_inserted = 0
+        allowed_interaction_ids = None
+        if table_name == "call_transcripts":
+            allowed_interaction_ids = _load_sampled_interaction_ids(engine)
+            print(
+                f"Transcript relationship filter: "
+                f"{len(allowed_interaction_ids):,} sampled interaction IDs"
+            )
 
         try:
-            for key in selected_keys:
-                remaining = table_limit - total_selected
-                if remaining <= 0:
+            for key_index, key in enumerate(selected_keys):
+                remaining_total = table_limit - accepted_total
+                if remaining_total <= 0:
                     break
 
-                object_cap = min(per_object_limit, remaining)
-                selected, inserted = ingest_csv_object(
+                remaining_keys = len(selected_keys) - key_index
+                object_quota = max(
+                    1,
+                    int(math.ceil(remaining_total / remaining_keys)),
+                )
+
+                accepted, inserted = ingest_csv_object(
                     s3=s3,
                     engine=engine,
                     writer=writer,
                     bucket=bucket,
                     prefix=prefix,
                     key=key,
-                    max_rows=object_cap,
-                    row_sample_fraction=row_sample_fraction,
+                    table_name=table_name,
+                    ordinary_quota=object_quota,
+                    allowed_interaction_ids=allowed_interaction_ids,
                 )
-                total_selected += selected
-                total_inserted += inserted
+                accepted_total += accepted
+                inserted_total += inserted
         finally:
             writer.close()
 
         print(
-            f"Completed {table_name}: selected={total_selected:,}; "
-            f"inserted={total_inserted:,}; cap={table_limit:,}"
+            f"TABLE COMPLETE {table_name}: "
+            f"ordinary sample={accepted_total:,}/{table_limit:,}; "
+            f"inserted={inserted_total:,}; source objects used={len(selected_keys):,}"
         )
 
     engine.dispose()
-    print("Fast dispute-workflow S3 -> RDS ingestion completed.")
+    print(
+        "Fast sampled S3 -> RDS ingestion completed. "
+        f"Selected days={sorted(selected_days)}"
+    )
 
 
 if __name__ == "__main__":

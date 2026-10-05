@@ -40,12 +40,13 @@ model_features = numeric_features + categorical_features
 candidate_c_values = [0.1, 1.0, 10.0]
 escalation_threshold = 0.50
 
-# The expensive VAD model runs only on this SQL-selected sample.
-# Override with ESCALATION_TRAINING_MAX_ROWS if a larger run is desired.
+# The expensive VAD model runs only on a small SQL-selected sample from the
+# already date-reduced RDS data. Override with ESCALATION_TRAINING_MAX_ROWS
+# if a larger evaluation run is desired.
 training_max_rows = int(
     os.getenv(
         "ESCALATION_TRAINING_MAX_ROWS",
-        "3000",
+        "1500",
     )
 )
 

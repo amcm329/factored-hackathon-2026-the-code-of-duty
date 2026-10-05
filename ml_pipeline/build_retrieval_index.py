@@ -27,8 +27,8 @@ asset_dir = Path(
 )
 index_path = asset_dir / "complaints.faiss"
 mapping_path = asset_dir / "complaint_ids.json"
-read_chunk_size = 2000
-embedding_batch_size = 32
+read_chunk_size = int(os.getenv("RETRIEVAL_READ_CHUNK_SIZE", "1000"))
+embedding_batch_size = int(os.getenv("RETRIEVAL_EMBEDDING_BATCH_SIZE", "64"))
 fallback_language = os.getenv("RETRIEVAL_FALLBACK_LANGUAGE", "es")
 aws_region = os.getenv("AWS_REGION", "us-east-1")
 runtime_asset_bucket = os.getenv("RUNTIME_ASSET_BUCKET", "").strip()

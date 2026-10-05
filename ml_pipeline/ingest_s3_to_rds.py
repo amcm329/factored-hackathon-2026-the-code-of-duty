@@ -14,14 +14,12 @@ from backend.secrets import get_database_url, get_organizer_s3_config
 
 
 # Fast hackathon ingestion profile.
-# Large fact tables keep only the 5th, 15th, and 25th of each month and are
-# additionally capped across the complete date range.
+# Large fact tables keep one calendar-date partition every N days across the
+# complete available history, anchored to the earliest available partition.
 read_chunk_size = int(os.getenv("INGEST_READ_CHUNK_SIZE", "50000"))
-selected_days = {
-    int(value)
-    for value in os.getenv("INGEST_SELECTED_DAYS", "5,15,25").split(",")
-    if value.strip()
-}
+sample_every_days = int(os.getenv("INGEST_SAMPLE_EVERY_DAYS", "5"))
+if sample_every_days <= 0:
+    raise ValueError("INGEST_SAMPLE_EVERY_DAYS must be greater than zero")
 
 organizer_tables = [
     "customers",
@@ -192,21 +190,26 @@ def infer_table_name(key, prefix):
     return parts[0]
 
 
-def _partition_day_from_key(key):
-    """Return a day-of-month encoded in a common year/month/day S3 path."""
+def _partition_date_from_key(key):
+    """Return the full calendar date encoded in a common partitioned S3 path."""
     patterns = [
-        r"(?:^|/)day[=_-]?(\d{1,2})(?:/|$)",
-        r"(?:^|/)dd[=_-]?(\d{1,2})(?:/|$)",
-        r"(?:^|/)20\d{2}/\d{1,2}/(\d{1,2})(?:/|$)",
-        r"(?:^|/)20\d{2}-\d{1,2}-(\d{1,2})(?:/|_|\.)",
+        r"(?:^|/)year[=_-]?(\d{4})/month[=_-]?(\d{1,2})/day[=_-]?(\d{1,2})(?:/|$)",
+        r"(?:^|/)(20\d{2})/(\d{1,2})/(\d{1,2})(?:/|$)",
+        r"(?:^|/)(20\d{2})-(\d{1,2})-(\d{1,2})(?:/|_|\.)",
     ]
 
     for pattern in patterns:
         match = re.search(pattern, key, flags=re.IGNORECASE)
-        if match:
-            day = int(match.group(1))
-            if 1 <= day <= 31:
-                return day
+        if not match:
+            continue
+        try:
+            return pd.Timestamp(
+                year=int(match.group(1)),
+                month=int(match.group(2)),
+                day=int(match.group(3)),
+            ).date()
+        except ValueError:
+            continue
 
     return None
 
@@ -263,34 +266,37 @@ def list_csv_keys(s3, bucket, prefix):
 
 
 def _select_keys_for_table(table_name, keys):
-    """Keep only selected day partitions when the key exposes day metadata."""
+    """Keep one partition every configured number of calendar days."""
     if table_name not in fact_tables:
-        return list(keys)
+        return list(keys), None
 
     parsed = [
-        (key, _partition_day_from_key(key))
+        (key, _partition_date_from_key(key))
         for key in keys
     ]
-    parsed_days = [day for _, day in parsed if day is not None]
+    parsed_dates = [partition_date for _, partition_date in parsed if partition_date is not None]
 
-    # If the organizer key naming does not expose a day, retain the objects and
-    # filter rows by process_date while streaming them.
-    if not parsed_days:
-        return list(keys)
+    # Current organizer fact tables expose year/month/day in their S3 paths.
+    # If a future source does not, retain the objects and let the row-level
+    # process_date filter apply using the first valid date it observes.
+    if not parsed_dates:
+        return list(keys), None
 
+    anchor_date = min(parsed_dates)
     selected = [
         key
-        for key, day in parsed
-        if day in selected_days
+        for key, partition_date in parsed
+        if partition_date is not None
+        and (partition_date - anchor_date).days % sample_every_days == 0
     ]
 
     if not selected:
         raise RuntimeError(
-            f"No {table_name} partitions matched selected days "
-            f"{sorted(selected_days)}"
+            f"No {table_name} partitions matched the every-{sample_every_days}-calendar-day sample "
+            f"anchored at {anchor_date.isoformat()}"
         )
 
-    return selected
+    return selected, anchor_date
 
 
 def validate_target_table(engine, table_name, csv_columns):
@@ -417,8 +423,8 @@ def _normalize_frame_for_postgres(engine, table_name, frame):
     return frame
 
 
-def _filter_selected_days(frame, table_name):
-    """Apply the day-of-month filter when the S3 key itself was not enough."""
+def _filter_sampled_dates(frame, table_name, sampling_anchor=None):
+    """Keep rows whose process date is on the every-N-calendar-day sampling grid."""
     if table_name not in fact_tables or frame.empty:
         return frame
 
@@ -427,7 +433,13 @@ def _filter_selected_days(frame, table_name):
         return frame
 
     parsed_dates = pd.to_datetime(frame[date_column], errors="coerce")
-    return frame.loc[parsed_dates.dt.day.isin(selected_days)]
+    valid_dates = parsed_dates.dropna()
+    if valid_dates.empty:
+        return frame.iloc[0:0]
+
+    anchor = pd.Timestamp(sampling_anchor or valid_dates.min().date())
+    day_offsets = (parsed_dates.dt.normalize() - anchor.normalize()).dt.days
+    return frame.loc[day_offsets.notna() & (day_offsets.mod(sample_every_days) == 0)]
 
 
 def _filter_relationships(frame, table_name, allowed_interaction_ids):
@@ -464,6 +476,7 @@ def ingest_csv_object(
     table_name,
     ordinary_quota,
     allowed_interaction_ids=None,
+    sampling_anchor=None,
 ):
     """Stream one source object, keeping only the configured reduced sample."""
     print(
@@ -491,7 +504,11 @@ def ingest_csv_object(
             )
             first_chunk = False
 
-        chunk = _filter_selected_days(chunk, table_name)
+        chunk = _filter_sampled_dates(
+            chunk,
+            table_name,
+            sampling_anchor=sampling_anchor,
+        )
         chunk = _filter_relationships(
             chunk,
             table_name,
@@ -607,7 +624,7 @@ def main():
         if not source_keys:
             raise RuntimeError(f"No organizer CSV found for {table_name}")
 
-        selected_keys = _select_keys_for_table(table_name, source_keys)
+        selected_keys, sampling_anchor = _select_keys_for_table(table_name, source_keys)
         table_limit = row_limits[table_name]
         writer = PostgresBulkWriter(engine, table_name)
         accepted_total = 0
@@ -643,6 +660,7 @@ def main():
                     table_name=table_name,
                     ordinary_quota=object_quota,
                     allowed_interaction_ids=allowed_interaction_ids,
+                    sampling_anchor=sampling_anchor,
                 )
                 accepted_total += accepted
                 inserted_total += inserted
@@ -658,7 +676,7 @@ def main():
     engine.dispose()
     print(
         "Fast sampled S3 -> RDS ingestion completed. "
-        f"Selected days={sorted(selected_days)}"
+        f"Sample interval={sample_every_days} calendar days"
     )
 
 

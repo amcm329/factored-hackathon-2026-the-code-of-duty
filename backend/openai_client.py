@@ -39,7 +39,13 @@ def generate_reply(message, language="en", history=None, evidence_context=None, 
         'for another supported response language. '
         'Never ask the customer to type a full card number, account number, or product identifier. '
         'When an authenticated dispute needs a transaction, the customer must select it from verified backend records. '
-        'If no verified transaction is linked to a historical complaint, do not invent a linkage and do not ask for card details.'
+        'If no verified transaction is linked to a historical complaint, do not invent a linkage and do not ask for card details. '
+        'SCOPE BOUNDARY: Hermes only supports transaction disputes, unrecognized or unauthorized transaction questions, '
+        'dispute processes, and viewing or explaining verified transaction/dispute records. '
+        'Do not provide general banking support for cash withdrawals, transfers, loans, balances, account opening or closing, '
+        'cards unrelated to a dispute, or other banking products. For an out-of-scope banking request, reply briefly that Hermes '
+        'only supports disputed or unrecognized transactions and transaction/dispute records. Do not provide generic instructions '
+        'for completing the out-of-scope banking operation.'
     )
 
     input_messages = []

@@ -1,7 +1,8 @@
 import logging
 import re
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 
@@ -180,12 +181,119 @@ ambiguous_transaction_signals = (
 
 
 
+out_of_scope_banking_signals = (
+    "withdraw money",
+    "cash withdrawal",
+    "withdraw cash",
+    "make a transfer",
+    "transfer money",
+    "send money",
+    "loan application",
+    "apply for a loan",
+    "open an account",
+    "close my account",
+    "retirar dinero",
+    "retirar mi dinero",
+    "quiero retirar",
+    "sacar dinero",
+    "sacar mi dinero",
+    "sacar tu dinero",
+    "quiero sacar",
+    "retiro en efectivo",
+    "hacer una transferencia",
+    "transferir dinero",
+    "enviar dinero",
+    "solicitar un préstamo",
+    "solicitar un prestamo",
+    "abrir una cuenta",
+    "cerrar mi cuenta",
+    "sacar efectivo",
+    "sacar plata",
+    "retirar efectivo",
+    "sacar do caixa",
+    "retirar dinheiro",
+    "retirar meu dinheiro",
+    "quero retirar",
+    "saque em dinheiro",
+    "quero sacar",
+    "fazer uma transferência",
+    "fazer uma transferencia",
+    "transferir dinheiro",
+    "enviar dinheiro",
+    "solicitar empréstimo",
+    "solicitar emprestimo",
+    "abrir uma conta",
+    "fechar minha conta",
+)
+
+
+dispute_scope_terms = (
+    "dispute",
+    "disputed",
+    "complaint",
+    "unrecognized",
+    "unauthorized",
+    "transaction",
+    "charge",
+    "disputa",
+    "reclamo",
+    "reclamación",
+    "reclamacion",
+    "no reconozco",
+    "cargo",
+    "transacción",
+    "transaccion",
+    "contestação",
+    "contestacao",
+    "reclamação",
+    "reclamacao",
+    "não reconheço",
+    "nao reconheco",
+    "transação",
+    "transacao",
+)
+
+
 
 def _normalize_country_key(value):
     normalized = unicodedata.normalize("NFKD", str(value or "").strip())
     return "".join(
         char for char in normalized if not unicodedata.combining(char)
     ).casefold()
+
+
+_COUNTRY_TIMEZONES = {
+    "mexico": "America/Mexico_City",
+    "colombia": "America/Bogota",
+    "argentina": "America/Argentina/Buenos_Aires",
+    "brazil": "America/Sao_Paulo",
+    "brasil": "America/Sao_Paulo",
+}
+
+
+def _country_local_now(country):
+    """Return the current local date/time for the authenticated customer's country."""
+
+    timezone_name = _COUNTRY_TIMEZONES.get(_normalize_country_key(country), "UTC")
+    return datetime.now(ZoneInfo(timezone_name))
+
+
+def _country_policy(country):
+    """Return the configured dispute-window policy for a customer's country."""
+
+    policy_config = get_dispute_policy_config()
+    normalized_policy = {
+        _normalize_country_key(name): value
+        for name, value in policy_config.items()
+    }
+    policy = normalized_policy.get(_normalize_country_key(country))
+    if policy is None:
+        raise RuntimeError(f"No dispute policy configured for country: {country}")
+
+    return {
+        "days": int(policy["days"]),
+        "type": str(policy["type"]).strip().lower(),
+    }
 
 
 def _subtract_business_days(reference_date, days):
@@ -201,18 +309,10 @@ def _subtract_business_days(reference_date, days):
 def _country_policy_cutoff(country, reference_date=None):
     """Return the earliest currently disputable date using the configured country policy."""
 
-    reference_date = reference_date or date.today()
-    policy_config = get_dispute_policy_config()
-    normalized_policy = {
-        _normalize_country_key(name): value
-        for name, value in policy_config.items()
-    }
-    policy = normalized_policy.get(_normalize_country_key(country))
-    if policy is None:
-        raise RuntimeError(f"No dispute policy configured for country: {country}")
-
-    days = int(policy["days"])
-    window_type = str(policy["type"]).strip().lower()
+    reference_date = reference_date or _country_local_now(country).date()
+    policy = _country_policy(country)
+    days = policy["days"]
+    window_type = policy["type"]
     if window_type == "calendar_days":
         return reference_date - timedelta(days=days)
     if window_type == "business_days":
@@ -236,7 +336,7 @@ def _transaction_is_currently_disputable(transaction, country):
     transaction_date = _transaction_date_value(transaction)
     if transaction_date is None:
         return False
-    today = date.today()
+    today = _country_local_now(country).date()
     cutoff = _country_policy_cutoff(country, reference_date=today)
     return cutoff <= transaction_date <= today
 
@@ -272,6 +372,37 @@ def _is_ambiguous_transaction_request(message):
         return False
     normalized = _normalize_for_intent(message)
     return any(signal in normalized for signal in ambiguous_transaction_signals)
+
+
+def _is_out_of_scope_banking_request(message):
+    """Detect banking operations outside Hermes transaction-dispute scope."""
+
+    normalized = _normalize_for_intent(message)
+
+    # Dispute/transaction questions remain in scope even when they mention an
+    # ATM withdrawal, transfer, card, or other transaction mechanism.
+    if any(term in normalized for term in dispute_scope_terms):
+        return False
+
+    return any(signal in normalized for signal in out_of_scope_banking_signals)
+
+
+def _out_of_scope_message(language):
+    messages = {
+        "en": (
+            "Hermes only assists with disputed or unrecognized transactions "
+            "and with your transaction or dispute records."
+        ),
+        "es": (
+            "Hermes solo ayuda con transacciones disputadas o no reconocidas "
+            "y con tus registros de transacciones o disputas."
+        ),
+        "pt": (
+            "Hermes só ajuda com transações contestadas ou não reconhecidas "
+            "e com seus registros de transações ou contestações."
+        ),
+    }
+    return messages[language]
 
 
 def _clarification_message(language):
@@ -378,32 +509,78 @@ def _extract_iso_date_range(message):
     return start_date, end_date
 
 
-def _case_history_message(cases, language):
+def _policy_context_message(country, language):
+    """Build the deterministic country/date/time dispute-window explanation."""
+
+    current_local = _country_local_now(country)
+    policy = _country_policy(country)
+    days = policy["days"]
+    window_type = policy["type"]
+    timestamp = current_local.strftime("%Y-%m-%d %H:%M")
+
+    if window_type == "business_days":
+        units = {
+            "en": "business day" if days == 1 else "business days",
+            "es": "día hábil" if days == 1 else "días hábiles",
+            "pt": "dia útil" if days == 1 else "dias úteis",
+        }
+    elif window_type == "calendar_days":
+        units = {
+            "en": "calendar day" if days == 1 else "calendar days",
+            "es": "día calendario" if days == 1 else "días calendario",
+            "pt": "dia corrido" if days == 1 else "dias corridos",
+        }
+    else:
+        raise RuntimeError(f"Unsupported dispute policy window type: {window_type}")
+
+    return {
+        "en": (
+            f"As of {timestamp} local time, you are registered in {country}. "
+            f"The maximum dispute period is {days} {units['en']}."
+        ),
+        "es": (
+            f"A fecha de {timestamp}, hora local, estás registrado en {country}. "
+            f"El plazo máximo para disputar es de {days} {units['es']}."
+        ),
+        "pt": (
+            f"Em {timestamp}, horário local, você está registrado em {country}. "
+            f"O prazo máximo para contestação é de {days} {units['pt']}."
+        ),
+    }[language]
+
+
+def _case_history_message(cases, language, country):
+    policy_context = _policy_context_message(country, language)
     if not cases:
-        return {
-            "en": "I found no disputes or complaints associated with your account.",
-            "es": "No encontré disputas ni reclamos asociados con tu cuenta.",
-            "pt": "Não encontrei contestações ou reclamações associadas à sua conta.",
+        detail = {
+            "en": "I found no disputes or complaints still within that period.",
+            "es": "No encontré disputas ni reclamos que sigan dentro de ese plazo.",
+            "pt": "Não encontrei contestações ou reclamações que ainda estejam dentro desse prazo.",
         }[language]
-    return {
-        "en": f"I found {len(cases)} dispute/complaint record(s). I displayed them on the right.",
-        "es": f"Encontré {len(cases)} disputa(s) o reclamo(s). Los mostré en el panel derecho.",
-        "pt": f"Encontrei {len(cases)} contestação(ões) ou reclamação(ões). Mostrei no painel à direita.",
-    }[language]
+    else:
+        detail = {
+            "en": f"I found {len(cases)} dispute/complaint record(s) still within that period and displayed them on the right.",
+            "es": f"Encontré {len(cases)} disputa(s) o reclamo(s) que siguen dentro de ese plazo y los mostré en el panel derecho.",
+            "pt": f"Encontrei {len(cases)} contestação(ões) ou reclamação(ões) que ainda estão dentro desse prazo e mostrei no painel à direita.",
+        }[language]
+    return f"{policy_context} {detail}"
 
 
-def _transaction_history_message(transactions, language):
+def _transaction_history_message(transactions, language, country):
+    policy_context = _policy_context_message(country, language)
     if not transactions:
-        return {
-            "en": "I found no transactions for that request.",
-            "es": "No encontré transacciones para esa consulta.",
-            "pt": "Não encontrei transações para essa consulta.",
+        detail = {
+            "en": "I found no transactions for your request within that allowed period.",
+            "es": "No encontré transacciones para tu consulta dentro de ese plazo permitido.",
+            "pt": "Não encontrei transações para sua consulta dentro desse prazo permitido.",
         }[language]
-    return {
-        "en": f"I found {len(transactions)} transaction(s). I displayed them on the right.",
-        "es": f"Encontré {len(transactions)} transacción(es). Las mostré en el panel derecho.",
-        "pt": f"Encontrei {len(transactions)} transação(ões). Mostrei no painel à direita.",
-    }[language]
+    else:
+        detail = {
+            "en": f"I found {len(transactions)} transaction(s) for your request within that allowed period and displayed them on the right.",
+            "es": f"Encontré {len(transactions)} transacción(es) para tu consulta dentro de ese plazo permitido y las mostré en el panel derecho.",
+            "pt": f"Encontrei {len(transactions)} transação(ões) para sua consulta dentro desse prazo permitido e mostrei no painel à direita.",
+        }[language]
+    return f"{policy_context} {detail}"
 
 
 def _normalize_language(language):
@@ -444,7 +621,7 @@ def transactions(customer_context=Depends(get_current_customer_context)):
 
     customer_id = customer_context["customer_id"]
     country = customer_context["country"]
-    today = date.today()
+    today = _country_local_now(country).date()
     cutoff = _country_policy_cutoff(country, reference_date=today)
     return {
         "transactions": get_customer_transactions(
@@ -635,7 +812,7 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         try:
-            cutoff = _country_policy_cutoff(country, reference_date=date.today())
+            cutoff = _country_policy_cutoff(country, reference_date=_country_local_now(country).date())
             case = get_customer_case(
                 customer_id=customer_id,
                 case_id=requested_case_id,
@@ -683,7 +860,7 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         try:
-            cutoff = _country_policy_cutoff(country, reference_date=date.today())
+            cutoff = _country_policy_cutoff(country, reference_date=_country_local_now(country).date())
             cases = get_customer_case_history(
                 customer_id=customer_id,
                 limit=20,
@@ -697,7 +874,7 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             ) from error
 
         return {
-            "response": _case_history_message(cases, language),
+            "response": _case_history_message(cases, language, country),
             "case_history": cases,
             "personal_dispute": False,
             "retrieval_used": False,
@@ -717,7 +894,7 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         start_date, end_date = _extract_iso_date_range(message)
-        today = date.today()
+        today = _country_local_now(country).date()
         policy_cutoff = _country_policy_cutoff(country, reference_date=today)
         effective_start = max(filter(None, [start_date, policy_cutoff]))
         effective_end = min(filter(None, [end_date, today])) if end_date else today
@@ -741,7 +918,7 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             ) from error
 
         return {
-            "response": _transaction_history_message(transactions, language),
+            "response": _transaction_history_message(transactions, language, country),
             "transaction_history": transactions,
             "personal_dispute": False,
             "retrieval_used": False,
@@ -775,6 +952,17 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
         return {
             "response": _clarification_message(language),
             "clarification_required": True,
+            "personal_dispute": False,
+            "retrieval_used": False,
+            "needs_satisfaction_feedback": False,
+            "needs_transaction_selection": False,
+            "authentication_required": False,
+        }
+
+    if _is_out_of_scope_banking_request(message):
+        return {
+            "response": _out_of_scope_message(language),
+            "out_of_scope": True,
             "personal_dispute": False,
             "retrieval_used": False,
             "needs_satisfaction_feedback": False,

@@ -1,5 +1,6 @@
 import json
 import os
+import unicodedata
 from pathlib import Path
 
 import boto3
@@ -69,6 +70,16 @@ def publish_retrieval_assets():
     }
 
 
+
+def _normalize_country_key(value):
+    """Normalize country names for accent/case-insensitive policy matching."""
+    normalized = unicodedata.normalize("NFKD", str(value).strip())
+    without_accents = "".join(
+        char for char in normalized
+        if not unicodedata.combining(char)
+    )
+    return without_accents.casefold()
+
 def _subtract_policy_window(max_date, policy):
     """Subtract one configured calendar or business-day country window."""
 
@@ -89,13 +100,13 @@ def _country_cutoffs(frame):
 
     policy_config = get_dispute_policy_config()
     normalized_policy = {
-        str(country).strip().casefold(): value
+        _normalize_country_key(country): value
         for country, value in policy_config.items()
     }
     cutoffs = {}
 
     for country, country_frame in frame.groupby("country", sort=True):
-        policy = normalized_policy.get(str(country).strip().casefold())
+        policy = normalized_policy.get(_normalize_country_key(country))
 
         if policy is None:
             raise RuntimeError(f"No dispute policy window configured for country: {country}")
@@ -166,7 +177,7 @@ def _evaluate_held_out(model, country_indexes, held_out_frame):
     top_one_scores = []
 
     for country, country_frame in held_out_frame.groupby("country", sort=True):
-        country_index = country_indexes.get(str(country).casefold())
+        country_index = country_indexes.get(_normalize_country_key(country))
 
         if country_index is None or country_index.ntotal <= 0:
             continue
@@ -302,7 +313,7 @@ def build_retrieval_index():
             if not positions:
                 continue
 
-            country_key = country.casefold()
+            country_key = _normalize_country_key(country)
 
             if country_key not in country_indexes:
                 country_indexes[country_key] = faiss.IndexFlatIP(vectors.shape[1])

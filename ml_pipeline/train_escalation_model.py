@@ -1,4 +1,5 @@
 import os
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -130,6 +131,16 @@ def load_training_rows():
     return frame
 
 
+
+def _normalize_country_key(value):
+    """Normalize country names for accent/case-insensitive policy matching."""
+    normalized = unicodedata.normalize("NFKD", str(value).strip())
+    without_accents = "".join(
+        char for char in normalized
+        if not unicodedata.combining(char)
+    )
+    return without_accents.casefold()
+
 def _subtract_policy_window(max_date, policy):
     """Subtract one configured calendar or business-day country window."""
 
@@ -152,14 +163,14 @@ def _country_cutoffs(frame):
 
     policy_config = get_dispute_policy_config()
     normalized_policy = {
-        str(country).strip().casefold(): value
+        _normalize_country_key(country): value
         for country, value in policy_config.items()
     }
     cutoffs = {}
 
     for country, country_frame in frame.groupby("country", sort=True):
         policy = normalized_policy.get(
-            str(country).strip().casefold()
+            _normalize_country_key(country)
         )
 
         if policy is None:

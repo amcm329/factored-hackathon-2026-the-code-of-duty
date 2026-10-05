@@ -313,6 +313,37 @@ def validate_target_table(engine, table_name, csv_columns):
         )
 
 
+
+def _canonicalize_country_values(frame):
+    """Canonicalize known LATAM country labels used across RDS/Cognito/policy logic."""
+    if frame.empty:
+        return frame
+
+    canonical = {
+        "mexico": "Mexico",
+        "colombia": "Colombia",
+        "argentina": "Argentina",
+        "brasil": "Brazil",
+        "brazil": "Brazil",
+    }
+
+    def normalize_key(value):
+        if pd.isna(value):
+            return value
+        import unicodedata
+        normalized = unicodedata.normalize("NFKD", str(value).strip())
+        normalized = "".join(
+            char for char in normalized
+            if not unicodedata.combining(char)
+        ).casefold()
+        return canonical.get(normalized, str(value).strip())
+
+    result = frame.copy()
+    for column_name in ("country", "transaction_country"):
+        if column_name in result.columns:
+            result[column_name] = result[column_name].map(normalize_key)
+    return result
+
 def _normalize_frame_for_postgres(engine, table_name, frame):
     """Validate required values and normalize pandas dtypes before PostgreSQL COPY.
 
@@ -466,6 +497,8 @@ def ingest_csv_object(
             table_name,
             allowed_interaction_ids,
         )
+
+        chunk = _canonicalize_country_values(chunk)
 
         if chunk.empty:
             continue

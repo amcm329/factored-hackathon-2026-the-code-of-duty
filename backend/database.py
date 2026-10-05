@@ -129,8 +129,8 @@ def get_customer_transactions(customer_id, limit=20, start_date=None, end_date=N
 
     return [dict(row) for row in rows]
 
-def get_customer_case_history(customer_id, limit=20):
-    """Read complaint history and FactoredAI-created disputes for one customer."""
+def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
+    """Read only currently eligible complaint/dispute records for one customer when a cutoff is supplied."""
     query = text(
         """
         SELECT
@@ -156,21 +156,32 @@ def get_customer_case_history(customer_id, limit=20):
                 description AS summary
             FROM complaints
             WHERE customer_id = :customer_id
+              AND (
+                    :cutoff_date IS NULL
+                    OR creation_date >= CAST(:cutoff_date AS DATE)
+                  )
 
             UNION ALL
 
             SELECT
-                dispute_id::text AS case_id,
-                created_at AS case_date,
+                d.dispute_id::text AS case_id,
+                d.created_at AS case_date,
                 'FACTORED_AI'::text AS source,
                 'Dispute'::text AS case_type,
                 'Transaction dispute'::text AS category,
-                status,
-                claimed_amount,
-                currency,
-                reason AS summary
-            FROM dispute_cases
-            WHERE customer_id = :customer_id
+                d.status,
+                d.claimed_amount,
+                d.currency,
+                d.reason AS summary
+            FROM dispute_cases d
+            JOIN transactions t
+              ON t.transaction_id = d.transaction_id
+             AND t.customer_id = d.customer_id
+            WHERE d.customer_id = :customer_id
+              AND (
+                    :cutoff_date IS NULL
+                    OR t.transaction_date >= CAST(:cutoff_date AS DATE)
+                  )
         ) AS customer_cases
         ORDER BY case_date DESC
         LIMIT :limit
@@ -181,14 +192,15 @@ def get_customer_case_history(customer_id, limit=20):
             query,
             {
                 "customer_id": customer_id,
+                "cutoff_date": cutoff_date,
                 "limit": int(limit),
             },
         ).mappings().all()
     return [dict(row) for row in rows]
 
 
-def get_customer_case(customer_id, case_id):
-    """Read one owned complaint/dispute and expose a transaction only when linkage is unambiguous."""
+def get_customer_case(customer_id, case_id, cutoff_date=None):
+    """Read one owned, currently eligible case and expose a transaction only when linkage is unambiguous."""
 
     normalized_case_id = str(case_id or "").strip()
     if not normalized_case_id:
@@ -202,6 +214,10 @@ def get_customer_case(customer_id, case_id):
                 FROM complaints
                 WHERE customer_id = :customer_id
                   AND UPPER(complaint_id) = UPPER(:case_id)
+                  AND (
+                        :cutoff_date IS NULL
+                        OR creation_date >= CAST(:cutoff_date AS DATE)
+                      )
                 LIMIT 1
             )
             SELECT
@@ -243,6 +259,7 @@ def get_customer_case(customer_id, case_id):
         params = {
             "customer_id": customer_id,
             "case_id": normalized_case_id,
+            "cutoff_date": cutoff_date,
         }
     else:
         try:
@@ -253,30 +270,38 @@ def get_customer_case(customer_id, case_id):
         query = text(
             """
             SELECT
-                dispute_id::text AS case_id,
-                created_at AS case_date,
+                d.dispute_id::text AS case_id,
+                d.created_at AS case_date,
                 'FACTORED_AI'::text AS source,
                 'Dispute'::text AS case_type,
                 'Transaction dispute'::text AS category,
                 NULL::text AS subcategory,
-                status,
-                claimed_amount,
-                currency,
-                reason AS summary,
+                d.status,
+                d.claimed_amount,
+                d.currency,
+                d.reason AS summary,
                 NULL::text AS resolution,
                 NULL::text AS priority,
-                product_id AS affected_product_id,
-                transaction_id,
+                d.product_id AS affected_product_id,
+                d.transaction_id,
                 'EXACT_DISPUTE_LINK'::text AS transaction_link_type
-            FROM dispute_cases
-            WHERE customer_id = :customer_id
-              AND dispute_id = CAST(:case_id AS UUID)
+            FROM dispute_cases d
+            JOIN transactions t
+              ON t.transaction_id = d.transaction_id
+             AND t.customer_id = d.customer_id
+            WHERE d.customer_id = :customer_id
+              AND d.dispute_id = CAST(:case_id AS UUID)
+              AND (
+                    :cutoff_date IS NULL
+                    OR t.transaction_date >= CAST(:cutoff_date AS DATE)
+                  )
             LIMIT 1
             """
         )
         params = {
             "customer_id": customer_id,
             "case_id": normalized_case_id,
+            "cutoff_date": cutoff_date,
         }
 
     with get_engine().connect() as connection:

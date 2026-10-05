@@ -2,7 +2,7 @@
 
 Run on EC2 #1 from the repository root:
     source .venv/bin/activate
-    python evaluation/evaluate_hackathon.py
+    python performance_validation/evaluate_hackathon.py
 
 Required environment:
     EVALUATION_API_URL=https://...execute-api...amazonaws.com
@@ -20,6 +20,7 @@ Optional:
     OPENAI_USD_PER_MILLION_TOKENS=<documented blended price assumption>
 """
 
+import hashlib
 import json
 import os
 import statistics
@@ -38,6 +39,7 @@ from backend.database import (
     get_engine,
     get_interaction_metrics,
 )
+from backend.secrets import get_prompt_config
 from sqlalchemy import text
 
 
@@ -51,9 +53,30 @@ TEST_USER_SECRET = os.getenv(
 OUTPUT_PATH = Path(
     os.getenv(
         "EVALUATION_OUTPUT_PATH",
-        "/opt/factored-ai/evaluation/hackathon_evaluation_report.json",
+        "/opt/factored-ai/performance_validation/hackathon_evaluation_report.json",
     )
 )
+MODEL_EVALUATION_PATH = Path(
+    os.getenv(
+        "ESCALATION_EVALUATION_PATH",
+        "/opt/factored-ai/model_assets/escalation_evaluation.json",
+    )
+)
+MODEL_ARTIFACT_PATH = Path(
+    os.getenv(
+        "ESCALATION_MODEL_PATH",
+        "/opt/factored-ai/model_assets/escalation_model.joblib",
+    )
+)
+CLOUDWATCH_NAMESPACE = os.getenv(
+    "EVALUATION_CLOUDWATCH_NAMESPACE",
+    "FactoredAI/PerformanceValidation",
+)
+CLOUDWATCH_LOG_GROUP = os.getenv(
+    "EVALUATION_CLOUDWATCH_LOG_GROUP",
+    "/factored-ai/performance-validation",
+)
+EVALUATION_SET = os.getenv("EVALUATION_SET", "HackathonHeldOut")
 COST_PER_MILLION = os.getenv("OPENAI_USD_PER_MILLION_TOKENS", "").strip()
 TIMEOUT_SECONDS = int(os.getenv("EVALUATION_HTTP_TIMEOUT_SECONDS", "120"))
 
@@ -81,6 +104,186 @@ LANGUAGE_MESSAGES = {
         "human": "Quero falar com um humano sobre esta transação",
     },
 }
+
+
+
+
+def _sha256_version(path):
+    if not path.exists():
+        return "unavailable"
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:12]
+
+
+def _prompt_version():
+    prompt = str(get_prompt_config().get("SYSTEM_PROMPT") or "")
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12] if prompt else "unavailable"
+
+
+def _load_model_evaluation():
+    if not MODEL_EVALUATION_PATH.exists():
+        return {}
+    try:
+        return json.loads(MODEL_EVALUATION_PATH.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _dimensions(evaluation_run, model_version, prompt_version, extra=None):
+    items = [
+        {"Name": "EvaluationSet", "Value": EVALUATION_SET},
+        {"Name": "EvaluationRun", "Value": evaluation_run},
+        {"Name": "ModelVersion", "Value": model_version},
+        {"Name": "PromptVersion", "Value": prompt_version},
+    ]
+    for name, value in (extra or {}).items():
+        items.append({"Name": str(name), "Value": str(value)})
+    return items
+
+
+def _publish_cloudwatch(report, evaluation_run, model_version, prompt_version):
+    summary = report["summary"]
+    cloudwatch = boto3.client("cloudwatch", region_name=AWS_REGION)
+    base = lambda extra=None: _dimensions(
+        evaluation_run, model_version, prompt_version, extra
+    )
+
+    metric_data = [
+        {
+            "MetricName": "EvaluationOutcomeRate",
+            "Value": float(summary["safe_automated_resolution_rate"] or 0.0) * 100.0,
+            "Unit": "Percent",
+            "Dimensions": base({"Outcome": "SafeAutomatedResolution"}),
+        },
+        {
+            "MetricName": "EvaluationOutcomeRate",
+            "Value": float(summary["automation_attempt_rate"] or 0.0) * 100.0,
+            "Unit": "Percent",
+            "Dimensions": base({"Outcome": "AutomationAttempt"}),
+        },
+        {
+            "MetricName": "EvaluationOutcomeRate",
+            "Value": float(summary["unsafe_outcome_rate"] or 0.0) * 100.0,
+            "Unit": "Percent",
+            "Dimensions": base({"Outcome": "UnsafeOutcome"}),
+        },
+        {
+            "MetricName": "EndToEndLatency",
+            "Value": float(summary["p50_latency_ms"] or 0.0),
+            "Unit": "Milliseconds",
+            "Dimensions": base({"Statistic": "p50"}),
+        },
+        {
+            "MetricName": "EndToEndLatency",
+            "Value": float(summary["p95_latency_ms"] or 0.0),
+            "Unit": "Milliseconds",
+            "Dimensions": base({"Statistic": "p95"}),
+        },
+        {
+            "MetricName": "EscalationRecall",
+            "Value": float(summary["escalation_recall"] or 0.0),
+            "Unit": "None",
+            "Dimensions": base(),
+        },
+        {
+            "MetricName": "EscalationErrors",
+            "Value": float(summary["missed_escalations"] or 0),
+            "Unit": "Count",
+            "Dimensions": base({"Type": "Missed"}),
+        },
+        {
+            "MetricName": "EscalationErrors",
+            "Value": float(summary["unnecessary_escalations"] or 0),
+            "Unit": "Count",
+            "Dimensions": base({"Type": "Unnecessary"}),
+        },
+    ]
+
+    if summary.get("cost_per_automation_attempt_usd") is not None:
+        metric_data.extend(
+            [
+                {
+                    "MetricName": "OperatingCost",
+                    "Value": float(summary["cost_per_automation_attempt_usd"]),
+                    "Unit": "None",
+                    "Dimensions": base({"Basis": "AutomationAttempt"}),
+                },
+                {
+                    "MetricName": "OperatingCost",
+                    "Value": float(summary["cost_per_safe_automated_resolution_usd"] or 0.0),
+                    "Unit": "None",
+                    "Dimensions": base({"Basis": "SuccessfulAutomatedResolution"}),
+                },
+            ]
+        )
+
+    cloudwatch.put_metric_data(
+        Namespace=CLOUDWATCH_NAMESPACE,
+        MetricData=metric_data,
+    )
+
+
+def _publish_evidence_logs(report, evaluation_run):
+    logs = boto3.client("logs", region_name=AWS_REGION)
+    try:
+        logs.create_log_group(logGroupName=CLOUDWATCH_LOG_GROUP)
+    except logs.exceptions.ResourceAlreadyExistsException:
+        pass
+
+    stream_name = f"{EVALUATION_SET}/{evaluation_run}"
+    try:
+        logs.create_log_stream(
+            logGroupName=CLOUDWATCH_LOG_GROUP,
+            logStreamName=stream_name,
+        )
+    except logs.exceptions.ResourceAlreadyExistsException:
+        pass
+
+    now_ms = int(time.time() * 1000)
+    events = []
+    for index, result in enumerate(report.get("results", [])):
+        events.append(
+            {
+                "timestamp": now_ms + index,
+                "message": json.dumps(
+                    {
+                        "record_type": "evaluation_case",
+                        "evaluation_set": EVALUATION_SET,
+                        "evaluation_run": evaluation_run,
+                        **result,
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            }
+        )
+    events.append(
+        {
+            "timestamp": now_ms + len(events),
+            "message": json.dumps(
+                {
+                    "record_type": "evaluation_summary",
+                    "evaluation_set": EVALUATION_SET,
+                    "evaluation_run": evaluation_run,
+                    "metadata": report.get("metadata", {}),
+                    "summary": report.get("summary", {}),
+                    "limitations": report.get("limitations", []),
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+        }
+    )
+
+    for start in range(0, len(events), 1000):
+        logs.put_log_events(
+            logGroupName=CLOUDWATCH_LOG_GROUP,
+            logStreamName=stream_name,
+            logEvents=events[start : start + 1000],
+        )
 
 
 def _percentile(values, percentile):
@@ -166,6 +369,18 @@ def _chat(token, language, message, interaction_id=None, feedback=None):
     return interaction_id, status, data, elapsed
 
 
+
+
+def _first_disputable_transaction(token):
+    status, data, _ = _request("GET", "/transactions", token, None)
+    if status != 200:
+        return None
+    transactions = data.get("transactions") or []
+    if not transactions:
+        return None
+    return transactions[0].get("transaction_id")
+
+
 def _unused_transaction(customer_id):
     query = text(
         """
@@ -231,9 +446,10 @@ def run():
         )
 
     results = []
+    in_scope_cases = 0
     automated_attempts = 0
     successful_automated_resolutions = 0
-    language_cycle = ["en", "es", "pt"]
+    language_cycle = ["en", "es"]
 
     for index, user in enumerate(authenticated_users):
         language = language_cycle[index % len(language_cycle)]
@@ -291,8 +507,8 @@ def run():
             interaction_id=iid,
         )
 
-        # Retrieval-assisted path. If retrieval produced a grounded response,
-        # exercise the explicit satisfaction endpoint as a synthetic held-out workflow.
+        # Retrieval-assisted path. This is an in-scope automated-resolution case.
+        in_scope_cases += 1
         iid, status, data, latency = _chat(token, language, messages["personal"])
         retrieval_attempted = bool(data.get("needs_satisfaction_feedback"))
         personal_safe = status == 200 and not data.get("authentication_required")
@@ -386,7 +602,7 @@ def run():
     )
 
     # Structured human handoff using a transaction that has no active dispute when available.
-    transaction_id = _unused_transaction(primary["customer_id"])
+    transaction_id = _first_disputable_transaction(primary["token"])
     if transaction_id:
         language = "en"
         reason = LANGUAGE_MESSAGES[language]["human"]
@@ -456,57 +672,97 @@ def run():
     estimated_cost = (
         total_tokens / 1_000_000.0 * cost_rate if cost_rate is not None else None
     )
+    automation_results = [
+        row for row in results
+        if row["name"] == "retrieval_assisted_resolution"
+        and row.get("details", {}).get("feedback_requested")
+    ]
+    automation_tokens = sum(row["total_tokens"] for row in automation_results)
+    automation_cost = (
+        automation_tokens / 1_000_000.0 * cost_rate
+        if cost_rate is not None
+        else None
+    )
+
+    model_evaluation = _load_model_evaluation()
+    escalation_recall = (model_evaluation.get("model") or {}).get("recall")
+    escalation_errors = model_evaluation.get("escalation_errors") or {}
+    missed_escalations = int(escalation_errors.get("missed") or 0)
+    unnecessary_escalations = int(escalation_errors.get("unnecessary") or 0)
+    model_version = _sha256_version(MODEL_ARTIFACT_PATH)
+    prompt_version = _prompt_version()
+    evaluation_run = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:8]
 
     report = {
         "generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "measurement_type": "held_out_synthetic_workflow_evaluation",
+        "evaluation_set": EVALUATION_SET,
+        "evaluation_run": evaluation_run,
+        "measurement_type": "held_out_workflow_evaluation",
         "api_url": API_URL,
         "test_users": len(authenticated_users),
+        "metadata": {
+            "number_of_cases": len(results),
+            "case_mix": sorted({row["name"] for row in results}),
+            "label_basis": "Deterministic expected workflow/security outcomes plus held-out escalation labels from escalation_evaluation.json.",
+            "model_version": model_version,
+            "prompt_version": prompt_version,
+            "repeated_run_variability": "not_computed_for_single_run",
+        },
         "summary": {
             "cases": len(results),
+            "in_scope_cases": in_scope_cases,
             "passed": passed_count,
             "pass_rate": passed_count / len(results) if results else None,
             "unsafe_outcomes": unsafe_count,
             "unsafe_outcome_rate": unsafe_count / len(results) if results else None,
             "automation_attempts": automated_attempts,
+            "automation_attempt_rate": (
+                automated_attempts / in_scope_cases if in_scope_cases else None
+            ),
             "safe_automated_resolutions": successful_automated_resolutions,
             "safe_automated_resolution_rate": (
-                successful_automated_resolutions / automated_attempts
-                if automated_attempts
+                successful_automated_resolutions / in_scope_cases
+                if in_scope_cases
                 else None
             ),
             "p50_latency_ms": _percentile(latencies, 0.50),
             "p95_latency_ms": _percentile(latencies, 0.95),
             "mean_latency_ms": statistics.fmean(latencies) if latencies else None,
             "total_tokens": total_tokens,
+            "automation_tokens": automation_tokens,
             "estimated_total_cost_usd": estimated_cost,
             "cost_assumption_usd_per_million_tokens": cost_rate,
-            "estimated_cost_per_case_usd": (
-                estimated_cost / len(results)
-                if estimated_cost is not None and results
+            "cost_per_automation_attempt_usd": (
+                automation_cost / automated_attempts
+                if automation_cost is not None and automated_attempts
                 else None
             ),
-            "estimated_cost_per_safe_automated_resolution_usd": (
-                estimated_cost / successful_automated_resolutions
-                if estimated_cost is not None and successful_automated_resolutions
+            "cost_per_safe_automated_resolution_usd": (
+                automation_cost / successful_automated_resolutions
+                if automation_cost is not None and successful_automated_resolutions
                 else None
             ),
+            "escalation_recall": escalation_recall,
+            "missed_escalations": missed_escalations,
+            "unnecessary_escalations": unnecessary_escalations,
         },
         "by_language": finalize_groups(by_language),
         "by_segment": finalize_groups(by_segment),
         "results": results,
         "limitations": [
-            "Synthetic test-user interactions are not production outcomes.",
-            "A synthetic yes-feedback step exercises automated-resolution instrumentation; it is not a human quality judgment.",
-            "Cost is reported only when OPENAI_USD_PER_MILLION_TOKENS is supplied and uses total-token blended pricing.",
-            "Tool-failure testing that intentionally stops EC2 #3 should be demonstrated separately to avoid destructive automation in this script.",
+            "Evaluation interactions are controlled held-out test workflows, not production outcomes.",
+            "Cost is reported only when OPENAI_USD_PER_MILLION_TOKENS is supplied.",
+            "A real EC2 #3 outage test is not fabricated by this script; tool-failure evidence must come from an actual controlled service interruption.",
         ],
     }
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str))
+    _publish_cloudwatch(report, evaluation_run, model_version, prompt_version)
+    _publish_evidence_logs(report, evaluation_run)
     print(json.dumps(report["summary"], indent=2))
     print(f"Report written to: {OUTPUT_PATH}")
+    print(f"CloudWatch evaluation run: {evaluation_run}")
     return report
 
 

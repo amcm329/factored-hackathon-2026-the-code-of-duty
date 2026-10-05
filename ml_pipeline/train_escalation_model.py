@@ -524,6 +524,9 @@ def train_and_save_model():
     )
     baseline_recall, baseline_roc_auc, _ = _metric_pair(y_test, baseline_probabilities)
 
+    missed_escalations = int(((y_test == 1) & (test_predictions == 0)).sum())
+    unnecessary_escalations = int(((y_test == 0) & (test_predictions == 1)).sum())
+
     importance = _feature_importance(model)
     trained_at = datetime.now(timezone.utc).isoformat()
     transaction_link_rate = float(frame["transaction_linked"].mean()) if len(frame) else 0.0
@@ -555,6 +558,10 @@ def train_and_save_model():
                 if validation_roc_auc is not None and baseline_roc_auc is not None
                 else None
             ),
+        },
+        "escalation_errors": {
+            "missed": missed_escalations,
+            "unnecessary": unnecessary_escalations,
         },
         "rows": {
             "training": int(len(training_frame)),

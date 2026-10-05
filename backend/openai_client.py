@@ -36,7 +36,10 @@ def generate_reply(message, language="en", history=None, evidence_context=None, 
     instructions = (
         f'{prompt_config["SYSTEM_PROMPT"].strip()}\n\n'
         f'Respond in {language_names[language]} unless the user explicitly asks '
-        'for another supported response language.'
+        'for another supported response language. '
+        'Never ask the customer to type a full card number, account number, or product identifier. '
+        'When an authenticated dispute needs a transaction, the customer must select it from verified backend records. '
+        'If no verified transaction is linked to a historical complaint, do not invent a linkage and do not ask for card details.'
     )
 
     input_messages = []

@@ -1,12 +1,12 @@
 import logging
 import re
-from datetime import date
+import unicodedata
+from datetime import date, timedelta
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 
 from backend.auth import (
     get_current_customer_context,
-    get_current_customer_id,
     get_optional_customer_context,
 )
 from backend.database import (
@@ -26,7 +26,7 @@ from backend.metrics import publish_resolution_metrics
 from backend.openai_client import generate_reply
 from backend.privacy import sanitize_text
 from backend.retrieval_client import search_similar_cases_retrieval
-from backend.secrets import get_prompt_config
+from backend.secrets import get_dispute_policy_config, get_prompt_config
 from backend.worker_client import predict_escalation_worker
 
 
@@ -177,6 +177,68 @@ ambiguous_transaction_signals = (
     "problema com uma transação",
     "problema com uma transacao",
 )
+
+
+
+
+def _normalize_country_key(value):
+    normalized = unicodedata.normalize("NFKD", str(value or "").strip())
+    return "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    ).casefold()
+
+
+def _subtract_business_days(reference_date, days):
+    current = reference_date
+    remaining = int(days)
+    while remaining > 0:
+        current -= timedelta(days=1)
+        if current.weekday() < 5:
+            remaining -= 1
+    return current
+
+
+def _country_policy_cutoff(country, reference_date=None):
+    """Return the earliest currently disputable date using the configured country policy."""
+
+    reference_date = reference_date or date.today()
+    policy_config = get_dispute_policy_config()
+    normalized_policy = {
+        _normalize_country_key(name): value
+        for name, value in policy_config.items()
+    }
+    policy = normalized_policy.get(_normalize_country_key(country))
+    if policy is None:
+        raise RuntimeError(f"No dispute policy configured for country: {country}")
+
+    days = int(policy["days"])
+    window_type = str(policy["type"]).strip().lower()
+    if window_type == "calendar_days":
+        return reference_date - timedelta(days=days)
+    if window_type == "business_days":
+        return _subtract_business_days(reference_date, days)
+    raise RuntimeError(f"Unsupported dispute policy window type: {window_type}")
+
+
+def _transaction_date_value(transaction):
+    value = (transaction or {}).get("transaction_date")
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value if type(value) is date else value.date()
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _transaction_is_currently_disputable(transaction, country):
+    transaction_date = _transaction_date_value(transaction)
+    if transaction_date is None:
+        return False
+    today = date.today()
+    cutoff = _country_policy_cutoff(country, reference_date=today)
+    return cutoff <= transaction_date <= today
 
 
 def _normalize_for_intent(value):
@@ -377,11 +439,20 @@ def welcome_message(language=Query(default="en")):
 
 
 @app.get("/transactions")
-def transactions(customer_id=Depends(get_current_customer_id)):
-    """Return recent transactions for explicit customer selection."""
+def transactions(customer_context=Depends(get_current_customer_context)):
+    """Return only transactions that remain disputable today under the customer's country policy."""
 
+    customer_id = customer_context["customer_id"]
+    country = customer_context["country"]
+    today = date.today()
+    cutoff = _country_policy_cutoff(country, reference_date=today)
     return {
-        "transactions": get_customer_transactions(customer_id)
+        "transactions": get_customer_transactions(
+            customer_id,
+            limit=100,
+            start_date=cutoff,
+            end_date=today,
+        )
     }
 
 
@@ -423,6 +494,8 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
         )
         if transaction is None:
             raise LookupError("Transaction does not belong to the authenticated customer")
+        if not _transaction_is_currently_disputable(transaction, country):
+            raise ValueError("Transaction is outside the configured dispute window for this country")
 
         segment = get_customer_segment(customer_id)
 
@@ -562,9 +635,11 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         try:
+            cutoff = _country_policy_cutoff(country, reference_date=date.today())
             case = get_customer_case(
                 customer_id=customer_id,
                 case_id=requested_case_id,
+                cutoff_date=cutoff,
             )
         except Exception as error:
             logger.exception("Customer case-detail lookup failed")
@@ -608,7 +683,12 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         try:
-            cases = get_customer_case_history(customer_id=customer_id, limit=20)
+            cutoff = _country_policy_cutoff(country, reference_date=date.today())
+            cases = get_customer_case_history(
+                customer_id=customer_id,
+                limit=20,
+                cutoff_date=cutoff,
+            )
         except Exception as error:
             logger.exception("Customer case-history lookup failed")
             raise HTTPException(
@@ -637,13 +717,21 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
 
         start_date, end_date = _extract_iso_date_range(message)
+        today = date.today()
+        policy_cutoff = _country_policy_cutoff(country, reference_date=today)
+        effective_start = max(filter(None, [start_date, policy_cutoff]))
+        effective_end = min(filter(None, [end_date, today])) if end_date else today
 
         try:
-            transactions = get_customer_transactions(
-                customer_id=customer_id,
-                limit=100,
-                start_date=start_date,
-                end_date=end_date,
+            transactions = (
+                get_customer_transactions(
+                    customer_id=customer_id,
+                    limit=100,
+                    start_date=effective_start,
+                    end_date=effective_end,
+                )
+                if effective_start <= effective_end
+                else []
             )
         except Exception as error:
             logger.exception("Customer transaction-history lookup failed")

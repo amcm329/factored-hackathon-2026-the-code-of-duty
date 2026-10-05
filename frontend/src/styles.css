@@ -629,31 +629,6 @@ textarea:disabled {
     radial-gradient(circle at 14% 88%, rgba(80,98,155,.13), transparent 30%),
     linear-gradient(135deg, #090e20 0%, #0b1024 48%, #10172d 100%);
 }
-.landing-stars,
-.landing-stars::before,
-.landing-stars::after {
-  position: absolute;
-  inset: 0;
-  content: '';
-  pointer-events: none;
-}
-.landing-stars {
-  opacity: .58;
-  background-image:
-    radial-gradient(circle at 8% 11%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 20% 27%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 37% 14%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 51% 31%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 64% 9%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 78% 22%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 91% 13%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 12% 61%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 31% 72%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 58% 69%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 84% 75%, #f7efd9 0 1px, transparent 1.5px),
-    radial-gradient(circle at 95% 55%, #f7efd9 0 1px, transparent 1.5px);
-  background-size: 240px 210px;
-}
 .landing-header {
   position: relative;
   z-index: 2;

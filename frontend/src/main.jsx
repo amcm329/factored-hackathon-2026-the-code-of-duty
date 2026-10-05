@@ -148,6 +148,7 @@ const copy = {
     landingSecurity: 'Private by design',
     landingGrounding: 'Grounded in verified records',
     landingHandoff: 'Human review when needed',
+    landingMyth: 'In Greek myth, Hermes carried messages between worlds. This Hermes carries verified intent between a bank and its customers.',
     handoffTitle: 'Human review handoff',
     verifiedFacts: 'Verified facts',
     actionsTaken: 'Actions taken',
@@ -207,6 +208,7 @@ const copy = {
     landingSecurity: 'Privacidad por diseño',
     landingGrounding: 'Basado en registros verificados',
     landingHandoff: 'Revisión humana cuando se necesita',
+    landingMyth: 'En la mitología griega, Hermes llevaba mensajes entre mundos. Este Hermes lleva intención verificada entre un banco y sus clientes.',
     handoffTitle: 'Transferencia para revisión humana',
     verifiedFacts: 'Hechos verificados',
     actionsTaken: 'Acciones realizadas',
@@ -266,6 +268,7 @@ const copy = {
     landingSecurity: 'Privacidade por design',
     landingGrounding: 'Baseado em registros verificados',
     landingHandoff: 'Revisão humana quando necessária',
+    landingMyth: 'Na mitologia grega, Hermes levava mensagens entre mundos. Este Hermes leva intenções verificadas entre um banco e seus clientes.',
     handoffTitle: 'Transferência para revisão humana',
     verifiedFacts: 'Fatos verificados',
     actionsTaken: 'Ações realizadas',
@@ -305,7 +308,6 @@ function LanguageSelect({ language, onChange }) {
 function LandingPage({ t, language, onLanguage, authenticated, customerId, onLogin, onLogout, onEnter }) {
   return (
     <div className="landing-page">
-      <div className="landing-stars" aria-hidden="true" />
       <header className="landing-header">
         <img src={hermesLogo} className="landing-wordmark" alt="Hermes" />
         <div className="landing-header-actions">
@@ -333,7 +335,7 @@ function LandingPage({ t, language, onLanguage, authenticated, customerId, onLog
             <span>{t.landingHandoff}</span>
           </div>
           <button className="landing-enter" type="button" onClick={onEnter}>{t.enterHermes}</button>
-          <p className="landing-myth">In Greek myth, Hermes carried messages between worlds. This Hermes carries verified intent between a bank and its customers.</p>
+          <p className="landing-myth">{t.landingMyth}</p>
         </section>
 
         <section className="landing-symbol" aria-label="Hermes symbol">
@@ -1038,6 +1040,7 @@ function App() {
     setAuthenticated(true)
     setCustomerId(get_current_username())
     setShowLogin(false)
+    setShowWorkspace(true)
   }
 
   function logout() {

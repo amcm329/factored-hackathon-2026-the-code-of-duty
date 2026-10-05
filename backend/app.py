@@ -12,6 +12,7 @@ from backend.auth import (
 from backend.database import (
     create_dispute_case,
     finalize_interaction_metrics,
+    get_customer_case,
     get_customer_case_history,
     get_customer_segment,
     get_customer_transactions,
@@ -180,6 +181,38 @@ def _is_human_escalation_request(message):
         word in normalized
         for word in ("manda", "mánd", "hablar", "escalar", "quiero")
     )
+
+
+def _extract_case_id(message):
+    value = str(message or "")
+
+    complaint_match = re.search(r"\bCMP-[A-Z0-9]+\b", value, flags=re.IGNORECASE)
+    if complaint_match:
+        return complaint_match.group(0).upper()
+
+    dispute_match = re.search(
+        r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b",
+        value,
+    )
+    if dispute_match:
+        return dispute_match.group(0).lower()
+
+    return None
+
+
+def _case_detail_message(case, language):
+    if case is None:
+        return {
+            "en": "I could not find that case in your account.",
+            "es": "No encontré ese caso en tu cuenta.",
+            "pt": "Não encontrei esse caso na sua conta.",
+        }[language]
+
+    return {
+        "en": "I found that case and displayed its details on the right.",
+        "es": "Encontré ese caso y mostré sus detalles en el panel derecho.",
+        "pt": "Encontrei esse caso e mostrei os detalhes no painel à direita.",
+    }[language]
 
 
 def _extract_iso_date_range(message):
@@ -419,6 +452,41 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             status_code=400,
             detail="message is required",
         )
+
+    requested_case_id = _extract_case_id(message)
+    if requested_case_id:
+        if not customer_id:
+            return {
+                "response": None,
+                "authentication_required": True,
+                "personal_dispute": False,
+                "needs_satisfaction_feedback": False,
+                "needs_transaction_selection": False,
+            }
+
+        try:
+            case = get_customer_case(
+                customer_id=customer_id,
+                case_id=requested_case_id,
+            )
+        except Exception as error:
+            logger.exception("Customer case-detail lookup failed")
+            raise HTTPException(
+                status_code=502,
+                detail=get_prompt_config()["FAILURE_MESSAGE"][language],
+            ) from error
+
+        response = {
+            "response": _case_detail_message(case, language),
+            "personal_dispute": False,
+            "retrieval_used": False,
+            "needs_satisfaction_feedback": False,
+            "needs_transaction_selection": False,
+            "authentication_required": False,
+        }
+        if case is not None:
+            response["case_detail"] = case
+        return response
 
     if _is_case_history_request(message):
         if not customer_id:

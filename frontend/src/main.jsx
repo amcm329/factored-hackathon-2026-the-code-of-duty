@@ -134,6 +134,8 @@ const copy = {
     evidenceLimit: 'You can attach up to three PDF evidence files.',
     requestFailed: 'The request could not be completed. Please try again.',
     caseHistoryTitle: 'My disputes and complaints',
+    caseDetailsTitle: 'Case details',
+    summary: 'Summary',
     transactionHistoryTitle: 'My transactions',
     noHistory: 'No records found.',
     status: 'Status',
@@ -177,6 +179,8 @@ const copy = {
     evidenceLimit: 'Puedes adjuntar hasta tres archivos PDF como evidencia.',
     requestFailed: 'No se pudo completar la solicitud. Inténtalo de nuevo.',
     caseHistoryTitle: 'Mis disputas y reclamos',
+    caseDetailsTitle: 'Detalles del caso',
+    summary: 'Resumen',
     transactionHistoryTitle: 'Mis transacciones',
     noHistory: 'No se encontraron registros.',
     status: 'Estado',
@@ -220,6 +224,8 @@ const copy = {
     evidenceLimit: 'Você pode anexar até três arquivos PDF como evidência.',
     requestFailed: 'Não foi possível concluir a solicitação. Tente novamente.',
     caseHistoryTitle: 'Minhas contestações e reclamações',
+    caseDetailsTitle: 'Detalhes do caso',
+    summary: 'Resumo',
     transactionHistoryTitle: 'Minhas transações',
     noHistory: 'Nenhum registro encontrado.',
     status: 'Status',
@@ -443,6 +449,30 @@ function CaseHistoryPanel({ t, items }) {
   )
 }
 
+function CaseDetailPanel({ t, item }) {
+  const rawDate = item?.case_date ? new Date(item.case_date) : null
+  const dateText = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toLocaleDateString() : ''
+  const amount = item?.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
+
+  return (
+    <aside className="details-panel history-panel">
+      <h2>{t.caseDetailsTitle}</h2>
+      <div className="history-list">
+        <div className="history-item">
+          <div className="history-item-head">
+            <strong>{item?.category || item?.case_type || '-'}</strong>
+            <span>{item?.status || '-'}</span>
+          </div>
+          {dateText && <small>{dateText}</small>}
+          <div className="history-meta"><span>{t.caseId}</span><b>{item?.case_id || '-'}</b></div>
+          {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
+          {item?.summary && <div className="history-meta"><span>{t.summary}</span><b>{item.summary}</b></div>}
+        </div>
+      </div>
+    </aside>
+  )
+}
+
 function TransactionHistoryPanel({ t, items }) {
   return (
     <aside className="details-panel history-panel">
@@ -466,6 +496,10 @@ function TransactionHistoryPanel({ t, items }) {
 }
 
 function RightPanel({ t, authenticated, transaction, panelData, onLogin }) {
+  if (authenticated && panelData?.type === 'case_detail') {
+    return <CaseDetailPanel t={t} item={panelData.item} />
+  }
+
   if (transaction) {
     return <TransactionDetails t={t} authenticated={authenticated} transaction={transaction} onLogin={onLogin} />
   }
@@ -576,6 +610,16 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
 
       if (result.response) {
         addBot(result.response)
+      }
+
+      if (result.case_detail) {
+        onTransaction(null)
+        onRightPanelData({
+          type: 'case_detail',
+          item: result.case_detail,
+        })
+        setShowTransactionSelection(false)
+        setReadyToOpenDispute(false)
       }
 
       if (Array.isArray(result.case_history)) {

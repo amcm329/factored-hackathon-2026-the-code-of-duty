@@ -187,6 +187,81 @@ def get_customer_case_history(customer_id, limit=20):
     return [dict(row) for row in rows]
 
 
+def get_customer_case(customer_id, case_id):
+    """Read one complaint or FactoredAI dispute only when it belongs to the authenticated customer."""
+
+    normalized_case_id = str(case_id or "").strip()
+    if not normalized_case_id:
+        return None
+
+    if normalized_case_id.upper().startswith("CMP-"):
+        query = text(
+            """
+            SELECT
+                complaint_id::text AS case_id,
+                creation_date AS case_date,
+                'BANK_HISTORY'::text AS source,
+                case_type,
+                category,
+                subcategory,
+                status,
+                claimed_amount,
+                currency,
+                description AS summary,
+                resolution,
+                priority,
+                affected_product_id,
+                NULL::text AS transaction_id
+            FROM complaints
+            WHERE customer_id = :customer_id
+              AND UPPER(complaint_id) = UPPER(:case_id)
+            LIMIT 1
+            """
+        )
+        params = {
+            "customer_id": customer_id,
+            "case_id": normalized_case_id,
+        }
+    else:
+        try:
+            normalized_case_id = str(uuid.UUID(normalized_case_id))
+        except (ValueError, AttributeError):
+            return None
+
+        query = text(
+            """
+            SELECT
+                dispute_id::text AS case_id,
+                created_at AS case_date,
+                'FACTORED_AI'::text AS source,
+                'Dispute'::text AS case_type,
+                'Transaction dispute'::text AS category,
+                NULL::text AS subcategory,
+                status,
+                claimed_amount,
+                currency,
+                reason AS summary,
+                NULL::text AS resolution,
+                NULL::text AS priority,
+                product_id AS affected_product_id,
+                transaction_id
+            FROM dispute_cases
+            WHERE customer_id = :customer_id
+              AND dispute_id = CAST(:case_id AS UUID)
+            LIMIT 1
+            """
+        )
+        params = {
+            "customer_id": customer_id,
+            "case_id": normalized_case_id,
+        }
+
+    with get_engine().connect() as connection:
+        row = connection.execute(query, params).mappings().first()
+
+    return dict(row) if row else None
+
+
 def get_customer_transaction(customer_id, transaction_id):
     """Read one transaction only when it belongs to the authenticated customer."""
 
@@ -275,6 +350,18 @@ def create_dispute_case(customer_id, transaction_id, reason, escalation_probabil
     if transaction is None:
         raise LookupError("Transaction does not belong to the authenticated customer")
 
+    existing_query = text(
+        """
+        SELECT *
+        FROM dispute_cases
+        WHERE customer_id = :customer_id
+          AND transaction_id = :transaction_id
+          AND status IN ('OPEN', 'ESCALATED')
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+    )
+
     dispute_id = str(uuid.uuid4())
     status = "ESCALATED" if requires_human_review else "OPEN"
     insert_query = text(
@@ -321,6 +408,17 @@ def create_dispute_case(customer_id, transaction_id, reason, escalation_probabil
     )
 
     with get_engine().begin() as connection:
+        existing = connection.execute(
+            existing_query,
+            {
+                "customer_id": customer_id,
+                "transaction_id": transaction_id,
+            },
+        ).mappings().first()
+
+        if existing is not None:
+            return dict(existing)
+
         valid_evidence_ids = _validate_evidence_for_dispute(
             connection=connection,
             customer_id=customer_id,

@@ -155,6 +155,16 @@ const copy = {
     unresolvedQuestions: 'Unresolved questions',
     linkedTransaction: 'Linked transaction',
     disputeDetailsTitle: 'Dispute details',
+    source: 'Source',
+    caseType: 'Case type',
+    subcategory: 'Subcategory',
+    resolution: 'Resolution',
+    priority: 'Priority',
+    affectedProduct: 'Affected product',
+    transactionId: 'Transaction ID',
+    linkType: 'Transaction link',
+    escalationProbability: 'Escalation probability',
+    humanReview: 'Human review required',
   },
   es: {
     title: 'Hermes',
@@ -215,6 +225,16 @@ const copy = {
     unresolvedQuestions: 'Preguntas pendientes',
     linkedTransaction: 'Transacción vinculada',
     disputeDetailsTitle: 'Detalles de la disputa',
+    source: 'Origen',
+    caseType: 'Tipo de caso',
+    subcategory: 'Subcategoría',
+    resolution: 'Resolución',
+    priority: 'Prioridad',
+    affectedProduct: 'Producto afectado',
+    transactionId: 'ID de transacción',
+    linkType: 'Vínculo de transacción',
+    escalationProbability: 'Probabilidad de escalamiento',
+    humanReview: 'Revisión humana requerida',
   },
   pt: {
     title: 'Hermes',
@@ -275,6 +295,16 @@ const copy = {
     unresolvedQuestions: 'Questões pendentes',
     linkedTransaction: 'Transação vinculada',
     disputeDetailsTitle: 'Detalhes da contestação',
+    source: 'Origem',
+    caseType: 'Tipo de caso',
+    subcategory: 'Subcategoria',
+    resolution: 'Resolução',
+    priority: 'Prioridade',
+    affectedProduct: 'Produto afetado',
+    transactionId: 'ID da transação',
+    linkType: 'Vínculo da transação',
+    escalationProbability: 'Probabilidade de escalonamento',
+    humanReview: 'Revisão humana necessária',
   },
 }
 
@@ -334,16 +364,14 @@ function LandingPage({ t, language, onLanguage, authenticated, customerId, onLog
             <span>{t.landingGrounding}</span>
             <span>{t.landingHandoff}</span>
           </div>
+          <button className="landing-enter" type="button" onClick={onEnter}>{t.enterHermes}</button>
           <p className="landing-myth">{t.landingMyth}</p>
         </section>
 
-        <section className="landing-action" aria-label="Hermes symbol and entry action">
-          <div className="landing-symbol">
-            <div className="landing-orbit orbit-one" />
-            <div className="landing-orbit orbit-two" />
-            <img src={hermesIcon} alt="" />
-          </div>
-          <button className="landing-enter" type="button" onClick={onEnter}>{t.enterHermes}</button>
+        <section className="landing-symbol" aria-label="Hermes symbol">
+          <div className="landing-orbit orbit-one" />
+          <div className="landing-orbit orbit-two" />
+          <img src={hermesIcon} alt="" />
         </section>
       </main>
     </div>
@@ -512,7 +540,75 @@ function TransactionDetails({ t, authenticated, transaction, onLogin }) {
   )
 }
 
+function linkedTransactionFromCase(item) {
+  if (!item?.transaction_id) return null
+
+  return {
+    transaction_id: item.transaction_id,
+    transaction_date: item.transaction_date,
+    product_id: item.transaction_product_id || item.affected_product_id,
+    transaction_type: item.transaction_type,
+    transaction_category: item.transaction_category,
+    amount: item.transaction_amount,
+    currency: item.transaction_currency,
+    channel: item.transaction_channel,
+    merchant_name: item.merchant_name,
+    merchant_category: item.merchant_category,
+    transaction_country: item.transaction_country,
+    transaction_city: item.transaction_city,
+    transaction_status: item.transaction_status,
+  }
+}
+
+function CaseDetailContent({ t, item, linkedTransaction }) {
+  const rawDate = item?.case_date ? new Date(item.case_date) : null
+  const dateText = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toLocaleDateString() : ''
+  const amount = item?.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
+  const linked = formatTransaction(linkedTransaction)
+  const probabilityValue = item?.escalation_probability == null ? null : Number(item.escalation_probability)
+  const probabilityText = probabilityValue !== null && Number.isFinite(probabilityValue)
+    ? `${(probabilityValue * 100).toFixed(1)}%`
+    : null
+
+  return (
+    <>
+      <div className="history-item-head">
+        <strong>{item?.category || item?.case_type || '-'}</strong>
+        <span>{item?.status || '-'}</span>
+      </div>
+      {dateText && <small>{dateText}</small>}
+      <div className="history-meta"><span>{t.caseId}</span><b>{item?.case_id || '-'}</b></div>
+      {item?.source && <div className="history-meta"><span>{t.source}</span><b>{item.source}</b></div>}
+      {item?.case_type && <div className="history-meta"><span>{t.caseType}</span><b>{item.case_type}</b></div>}
+      {item?.subcategory && <div className="history-meta"><span>{t.subcategory}</span><b>{item.subcategory}</b></div>}
+      {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
+      {item?.summary && <div className="history-meta"><span>{t.summary}</span><b>{item.summary}</b></div>}
+      {item?.resolution && <div className="history-meta"><span>{t.resolution}</span><b>{item.resolution}</b></div>}
+      {item?.priority && <div className="history-meta"><span>{t.priority}</span><b>{item.priority}</b></div>}
+      {item?.affected_product_id && <div className="history-meta"><span>{t.affectedProduct}</span><b>{item.affected_product_id}</b></div>}
+      {item?.transaction_id && <div className="history-meta"><span>{t.transactionId}</span><b>{item.transaction_id}</b></div>}
+      {item?.transaction_link_type && <div className="history-meta"><span>{t.linkType}</span><b>{item.transaction_link_type}</b></div>}
+      {probabilityText && <div className="history-meta"><span>{t.escalationProbability}</span><b>{probabilityText}</b></div>}
+      {item?.requires_human_review !== null && item?.requires_human_review !== undefined && (
+        <div className="history-meta"><span>{t.humanReview}</span><b>{item.requires_human_review ? t.yes : t.no}</b></div>
+      )}
+      {linked && (
+        <div className="linked-transaction-block">
+          <h3>{t.linkedTransaction}</h3>
+          <TransactionCard transaction={linked} />
+        </div>
+      )}
+    </>
+  )
+}
+
 function CaseHistoryPanel({ t, items }) {
+  const [selectedCaseId, setSelectedCaseId] = useState(null)
+
+  function toggleCase(caseId) {
+    setSelectedCaseId((current) => current === caseId ? null : caseId)
+  }
+
   return (
     <aside className="details-panel history-panel">
       <h2>{t.caseHistoryTitle}</h2>
@@ -522,15 +618,41 @@ function CaseHistoryPanel({ t, items }) {
           const rawDate = item.case_date ? new Date(item.case_date) : null
           const dateText = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toLocaleDateString() : ''
           const amount = item.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
+          const selected = selectedCaseId === item.case_id
+
           return (
-            <div className="history-item" key={item.case_id}>
-              <div className="history-item-head">
-                <strong>{item.category || item.case_type || '-'}</strong>
-                <span>{item.status || '-'}</span>
-              </div>
-              <small>{dateText}</small>
-              <div className="history-meta"><span>{t.caseId}</span><b>{item.case_id}</b></div>
-              {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
+            <div
+              className="history-item"
+              key={item.case_id}
+              role="button"
+              tabIndex={0}
+              aria-expanded={selected}
+              onClick={() => toggleCase(item.case_id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  toggleCase(item.case_id)
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
+              {selected ? (
+                <CaseDetailContent
+                  t={t}
+                  item={item}
+                  linkedTransaction={linkedTransactionFromCase(item)}
+                />
+              ) : (
+                <>
+                  <div className="history-item-head">
+                    <strong>{item.category || item.case_type || '-'}</strong>
+                    <span>{item.status || '-'}</span>
+                  </div>
+                  <small>{dateText}</small>
+                  <div className="history-meta"><span>{t.caseId}</span><b>{item.case_id}</b></div>
+                  {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
+                </>
+              )}
             </div>
           )
         })}
@@ -540,31 +662,13 @@ function CaseHistoryPanel({ t, items }) {
 }
 
 function CaseDetailPanel({ t, item, linkedTransaction }) {
-  const rawDate = item?.case_date ? new Date(item.case_date) : null
-  const dateText = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toLocaleDateString() : ''
-  const amount = item?.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
-  const linked = formatTransaction(linkedTransaction)
-
   return (
     <aside className="details-panel history-panel">
       <h2>{t.caseDetailsTitle}</h2>
       <div className="history-list">
         <div className="history-item">
-          <div className="history-item-head">
-            <strong>{item?.category || item?.case_type || '-'}</strong>
-            <span>{item?.status || '-'}</span>
-          </div>
-          {dateText && <small>{dateText}</small>}
-          <div className="history-meta"><span>{t.caseId}</span><b>{item?.case_id || '-'}</b></div>
-          {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
-          {item?.summary && <div className="history-meta"><span>{t.summary}</span><b>{item.summary}</b></div>}
+          <CaseDetailContent t={t} item={item} linkedTransaction={linkedTransaction} />
         </div>
-        {linked && (
-          <div className="linked-transaction-block">
-            <h3>{t.linkedTransaction}</h3>
-            <TransactionCard transaction={linked} />
-          </div>
-        )}
       </div>
     </aside>
   )
@@ -592,17 +696,42 @@ function TransactionHistoryPanel({ t, items }) {
   )
 }
 
-function DisputeDetailPanel({ t, item }) {
+function DisputeDetailPanel({ t, item, transaction }) {
   if (!item) return null
-  const amount = item.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
+
+  const normalizedItem = {
+    case_id: item.dispute_id,
+    case_date: item.created_at,
+    source: 'FACTORED_AI',
+    case_type: 'Dispute',
+    category: 'Transaction dispute',
+    subcategory: null,
+    status: item.status,
+    claimed_amount: item.claimed_amount,
+    currency: item.currency,
+    summary: item.reason,
+    resolution: null,
+    priority: null,
+    affected_product_id: item.product_id,
+    transaction_id: item.transaction_id,
+    transaction_link_type: 'EXACT_DISPUTE_LINK',
+    escalation_probability: item.escalation_probability,
+    requires_human_review: item.requires_human_review,
+  }
+
   return (
     <aside className="details-panel history-panel">
       <h2>{t.disputeDetailsTitle}</h2>
-      <div className="history-item">
-        <div className="history-item-head"><strong>Transaction dispute</strong><span>{item.status || '-'}</span></div>
-        <div className="history-meta"><span>{t.caseId}</span><b>{item.dispute_id || '-'}</b></div>
-        {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
-        {item.reason && <div className="history-meta"><span>{t.summary}</span><b>{item.reason}</b></div>}
+      <div className="history-list">
+        <div className="history-item">
+          <CaseDetailContent t={t} item={normalizedItem} linkedTransaction={null} />
+          {transaction && (
+            <div className="linked-transaction-block">
+              <h3>{t.linkedTransaction}</h3>
+              <TransactionCard transaction={transaction} />
+            </div>
+          )}
+        </div>
       </div>
     </aside>
   )
@@ -641,7 +770,7 @@ function RightPanel({ t, authenticated, transaction, panelData, onLogin }) {
   }
 
   if (authenticated && panelData?.type === 'dispute') {
-    return <DisputeDetailPanel t={t} item={panelData.item} />
+    return <DisputeDetailPanel t={t} item={panelData.item} transaction={panelData.linkedTransaction || null} />
   }
 
   if (authenticated && panelData?.type === 'case_detail') {
@@ -941,8 +1070,13 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
         onTransaction(null)
         onRightPanelData({ type: 'handoff', handoff: result.handoff, dispute: result.dispute })
       } else {
+        const selectedTransaction = transaction
         onTransaction(null)
-        onRightPanelData({ type: 'dispute', item: result.dispute })
+        onRightPanelData({
+          type: 'dispute',
+          item: result.dispute,
+          linkedTransaction: selectedTransaction,
+        })
       }
 
       setInteractionFinished(true)

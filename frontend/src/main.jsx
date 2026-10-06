@@ -97,22 +97,61 @@ const personal_dispute_signals = [
 const transaction_history_signals = [
   'my transaction',
   'my transactions',
+  'show my transactions',
+  'show transactions',
+  'give me my transactions',
+  'give me transactions',
   'mis transaccion',
   'mis transacciones',
+  'mostrar mis transacciones',
+  'dame mis transacciones',
   'minha transacao',
   'minhas transacoes',
+  'mostrar minhas transacoes',
+  'me mostre minhas transacoes',
 ]
 
 const dispute_history_signals = [
   'my dispute',
   'my disputes',
+  'show my disputes',
+  'show disputes',
+  'give me my disputes',
+  'give me disputes',
   'mis disputa',
   'mis disputas',
+  'mostrar mis disputas',
+  'dame mis disputas',
   'minha disputa',
   'minhas disputas',
   'minha contestacao',
   'minhas contestacoes',
+  'mostrar minhas disputas',
+  'mostrar minhas contestacoes',
+  'me mostre minhas disputas',
 ]
+
+const transaction_history_standalone = new Set([
+  'transaction',
+  'transactions',
+  'transaccion',
+  'transacciones',
+  'transacao',
+  'transacoes',
+])
+
+const dispute_history_standalone = new Set([
+  'dispute',
+  'disputes',
+  'complaint',
+  'complaints',
+  'disputa',
+  'disputas',
+  'reclamo',
+  'reclamos',
+  'contestacao',
+  'contestacoes',
+])
 
 const copy = {
   en: {
@@ -515,8 +554,26 @@ function normalizeAccountHistoryIntent(value) {
 
 function detectAccountHistoryIntent(value) {
   const normalized = normalizeAccountHistoryIntent(value)
-  const wantsTransactions = transaction_history_signals.some((signal) => normalized.includes(signal))
-  const wantsDisputes = dispute_history_signals.some((signal) => normalized.includes(signal))
+  const tokens = normalized.split(' ').filter(Boolean)
+  const standaloneTransactions = tokens.length === 1 && transaction_history_standalone.has(normalized)
+  const standaloneDisputes = tokens.length === 1 && dispute_history_standalone.has(normalized)
+  const simpleBoth = [
+    'transactions and disputes',
+    'disputes and transactions',
+    'transacciones y disputas',
+    'disputas y transacciones',
+    'transacoes e disputas',
+    'disputas e transacoes',
+    'transacoes e contestacoes',
+    'contestacoes e transacoes',
+  ].includes(normalized)
+
+  const wantsTransactions = standaloneTransactions
+    || simpleBoth
+    || transaction_history_signals.some((signal) => normalized.includes(signal))
+  const wantsDisputes = standaloneDisputes
+    || simpleBoth
+    || dispute_history_signals.some((signal) => normalized.includes(signal))
 
   if (wantsTransactions && wantsDisputes) return 'both'
   if (wantsTransactions) return 'transactions'

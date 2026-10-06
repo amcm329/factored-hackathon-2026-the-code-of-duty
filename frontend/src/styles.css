@@ -1016,6 +1016,10 @@ body { background: #f3f0e8; }
 .history-accordion-body {
   padding: 0 14px 14px;
   border-top: 1px solid #eee8dc;
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .history-accordion-body > .history-item-head {
@@ -1115,4 +1119,8 @@ body { background: #f3f0e8; }
 
 .handoff-accordion-body {
   padding-bottom: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }

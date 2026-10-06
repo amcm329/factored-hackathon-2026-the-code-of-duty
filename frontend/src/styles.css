@@ -1124,3 +1124,58 @@ body { background: #f3f0e8; }
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
+
+/* Persistent scrollbars for transaction/dispute lists and expanded cards */
+.history-panel > .history-list,
+.linked-transaction-block > .history-list {
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #aabbd0 #eef3f8;
+  padding-right: 8px;
+}
+
+.history-panel > .history-list::-webkit-scrollbar,
+.linked-transaction-block > .history-list::-webkit-scrollbar,
+.history-accordion-body::-webkit-scrollbar {
+  width: 9px;
+}
+
+.history-panel > .history-list::-webkit-scrollbar-track,
+.linked-transaction-block > .history-list::-webkit-scrollbar-track,
+.history-accordion-body::-webkit-scrollbar-track {
+  background: #eef3f8;
+  border-radius: 999px;
+}
+
+.history-panel > .history-list::-webkit-scrollbar-thumb,
+.linked-transaction-block > .history-list::-webkit-scrollbar-thumb,
+.history-accordion-body::-webkit-scrollbar-thumb {
+  background: #aabbd0;
+  border: 2px solid #eef3f8;
+  border-radius: 999px;
+}
+
+.history-panel > .history-list::-webkit-scrollbar-thumb:hover,
+.linked-transaction-block > .history-list::-webkit-scrollbar-thumb:hover,
+.history-accordion-body::-webkit-scrollbar-thumb:hover {
+  background: #879db8;
+}
+
+.history-accordion-body {
+  max-height: 190px;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #aabbd0 #eef3f8;
+  padding-right: 8px;
+}
+
+@media (max-width: 1050px) {
+  .history-panel > .history-list,
+  .linked-transaction-block > .history-list {
+    max-height: 460px;
+  }
+}

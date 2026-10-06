@@ -433,6 +433,7 @@ def _safe_transaction_for_model(transaction):
 
     if not transaction:
         return {}
+
     fields = (
         "transaction_id",
         "transaction_type",
@@ -444,7 +445,22 @@ def _safe_transaction_for_model(transaction):
         "is_fraud",
         "fraud_score",
     )
-    return {field: transaction.get(field) for field in fields}
+
+    safe_transaction = {
+        field: transaction.get(field)
+        for field in fields
+    }
+
+    for field in (
+        "amount_usd",
+        "fraud_score",
+    ):
+        if safe_transaction.get(field) is not None:
+            safe_transaction[field] = float(
+                safe_transaction[field]
+            )
+
+    return safe_transaction
 
 
 def _build_handoff(customer_id, dispute, transaction, reason, evidence_ids):

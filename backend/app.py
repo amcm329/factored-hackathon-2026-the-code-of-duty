@@ -655,6 +655,47 @@ def _is_personal_dispute_message(message):
     return any(signal in normalized for signal in personal_dispute_signals)
 
 
+def _demo_transactions():
+    """Return five deterministic demo transactions for the escalation scenario."""
+
+    return [
+        {"transaction_id": "DEMO-TXN-001", "transaction_date": "2026-06-16T14:23:00", "product_id": "DEMO-CARD-01", "transaction_type": "Purchase", "transaction_category": "Groceries", "amount": 187.00, "amount_usd": 187.00, "currency": "USD", "channel": "POS", "merchant_name": "Super Ahorro", "merchant_category": "Supermarket", "transaction_country": "México", "transaction_city": "Ciudad de México", "transaction_status": "Completed", "is_fraud": False, "fraud_score": 0.18},
+        {"transaction_id": "DEMO-TXN-002", "transaction_date": "2026-06-15T11:08:00", "product_id": "DEMO-CARD-01", "transaction_type": "Purchase", "transaction_category": "Retail", "amount": 64.25, "amount_usd": 64.25, "currency": "USD", "channel": "POS", "merchant_name": "Tienda Don José", "merchant_category": "Retail", "transaction_country": "México", "transaction_city": "Ciudad de México", "transaction_status": "Completed", "is_fraud": False, "fraud_score": 0.09},
+        {"transaction_id": "DEMO-TXN-003", "transaction_date": "2026-06-14T09:42:00", "product_id": "DEMO-CARD-01", "transaction_type": "Purchase", "transaction_category": "Healthcare", "amount": 245.90, "amount_usd": 245.90, "currency": "USD", "channel": "POS", "merchant_name": "Clínica Médica", "merchant_category": "Healthcare", "transaction_country": "México", "transaction_city": "Ciudad de México", "transaction_status": "Completed", "is_fraud": False, "fraud_score": 0.21},
+        {"transaction_id": "DEMO-TXN-004", "transaction_date": "2026-06-13T18:17:00", "product_id": "DEMO-CARD-01", "transaction_type": "Purchase", "transaction_category": "Dining", "amount": 32.80, "amount_usd": 32.80, "currency": "USD", "channel": "POS", "merchant_name": "Café Central", "merchant_category": "Restaurant", "transaction_country": "México", "transaction_city": "Ciudad de México", "transaction_status": "Completed", "is_fraud": False, "fraud_score": 0.05},
+        {"transaction_id": "DEMO-TXN-005", "transaction_date": "2026-06-12T16:31:00", "product_id": "DEMO-CARD-01", "transaction_type": "Purchase", "transaction_category": "Groceries", "amount": 91.40, "amount_usd": 91.40, "currency": "USD", "channel": "E-commerce", "merchant_name": "Mercado Express", "merchant_category": "Supermarket", "transaction_country": "México", "transaction_city": "Ciudad de México", "transaction_status": "Completed", "is_fraud": False, "fraud_score": 0.12},
+    ]
+
+
+def _demo_transaction(transaction_id):
+    """Return one deterministic demo transaction by identifier."""
+
+    normalized = str(transaction_id or "").strip()
+    for transaction in _demo_transactions():
+        if transaction["transaction_id"] == normalized:
+            return transaction
+    return None
+
+
+def _demo_dispute(customer_id, transaction, reason):
+    """Return one deterministic escalated dispute for a demo transaction."""
+
+    index = int(transaction["transaction_id"].rsplit("-", 1)[-1])
+    return {
+        "dispute_id": f"00000000-0000-4000-8000-{index:012d}",
+        "created_at": datetime.now().isoformat(),
+        "customer_id": customer_id,
+        "transaction_id": transaction["transaction_id"],
+        "product_id": transaction["product_id"],
+        "status": "ESCALATED",
+        "claimed_amount": transaction["amount"],
+        "currency": transaction["currency"],
+        "reason": reason,
+        "escalation_probability": None,
+        "requires_human_review": True,
+    }
+
+
 @app.get("/health")
 def health():
     """Return backend health status."""
@@ -676,6 +717,9 @@ def welcome_message(language=Query(default="en")):
 @app.get("/transactions")
 def transactions(customer_context=Depends(get_current_customer_context)):
     """Return only transactions that remain disputable today under the customer's country policy."""
+
+    if os.getenv("DEMO_MODE", "0").strip() == "1":
+        return {"transactions": _demo_transactions()}
 
     customer_id = customer_context["customer_id"]
     country = customer_context["country"]
@@ -702,7 +746,7 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
     language = _normalize_language(payload.get("language", "en"))
     interaction_id = payload.get("interaction_id", "").strip()
     evidence_ids = payload.get("evidence_ids", []) or []
-    force_human_review = bool(payload.get("force_human_review", False))
+    force_human_review = os.getenv("DEMO_MODE", "0").strip() == "1" or bool(payload.get("force_human_review", False))
 
     if not interaction_id:
         raise HTTPException(status_code=400, detail="interaction_id is required")
@@ -723,39 +767,53 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
     safe_reason = sanitize_text(reason, reason_language)
 
     try:
-        transaction = get_customer_transaction(
-            customer_id=customer_id,
-            transaction_id=transaction_id,
+        demo_transaction = (
+            _demo_transaction(transaction_id)
+            if os.getenv("DEMO_MODE", "0").strip() == "1"
+            else None
         )
-        if transaction is None:
-            raise LookupError("Transaction does not belong to the authenticated customer")
-        if not _transaction_is_currently_disputable(transaction, country):
-            raise ValueError("Transaction is outside the configured dispute window for this country")
 
-        segment = get_customer_segment(customer_id)
-
-        if force_human_review:
-            prediction = {
-                "escalation_probability": None,
-                "requires_human_review": True,
-            }
-        else:
-            prediction = predict_escalation_worker(
-                text=safe_reason,
-                language=reason_language,
-                country=country,
-                segment=segment,
-                transaction=_safe_transaction_for_model(transaction),
+        if demo_transaction is not None:
+            transaction = demo_transaction
+            dispute = _demo_dispute(
+                customer_id=customer_id,
+                transaction=transaction,
+                reason=safe_reason,
             )
+        else:
+            transaction = get_customer_transaction(
+                customer_id=customer_id,
+                transaction_id=transaction_id,
+            )
+            if transaction is None:
+                raise LookupError("Transaction does not belong to the authenticated customer")
+            if not _transaction_is_currently_disputable(transaction, country):
+                raise ValueError("Transaction is outside the configured dispute window for this country")
 
-        dispute = create_dispute_case(
-            customer_id=customer_id,
-            transaction_id=transaction_id,
-            reason=safe_reason,
-            escalation_probability=prediction["escalation_probability"],
-            requires_human_review=prediction["requires_human_review"],
-            evidence_ids=evidence_ids,
-        )
+            segment = get_customer_segment(customer_id)
+
+            if force_human_review:
+                prediction = {
+                    "escalation_probability": None,
+                    "requires_human_review": True,
+                }
+            else:
+                prediction = predict_escalation_worker(
+                    text=safe_reason,
+                    language=reason_language,
+                    country=country,
+                    segment=segment,
+                    transaction=_safe_transaction_for_model(transaction),
+                )
+
+            dispute = create_dispute_case(
+                customer_id=customer_id,
+                transaction_id=transaction_id,
+                reason=safe_reason,
+                escalation_probability=prediction["escalation_probability"],
+                requires_human_review=prediction["requires_human_review"],
+                evidence_ids=evidence_ids,
+            )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
@@ -958,16 +1016,19 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
         effective_end = min(filter(None, [end_date, today])) if end_date else today
 
         try:
-            transactions = (
-                get_customer_transactions(
-                    customer_id=customer_id,
-                    limit=100,
-                    start_date=effective_start,
-                    end_date=effective_end,
+            if os.getenv("DEMO_MODE", "0").strip() == "1":
+                transactions = _demo_transactions()
+            else:
+                transactions = (
+                    get_customer_transactions(
+                        customer_id=customer_id,
+                        limit=100,
+                        start_date=effective_start,
+                        end_date=effective_end,
+                    )
+                    if effective_start <= effective_end
+                    else []
                 )
-                if effective_start <= effective_end
-                else []
-            )
         except Exception as error:
             logger.exception("Customer transaction-history lookup failed")
             raise HTTPException(

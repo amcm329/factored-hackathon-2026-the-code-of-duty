@@ -187,12 +187,13 @@ const copy = {
     chargedTwice: 'Charged twice',
     atmCashIssue: 'ATM / cash issue',
     otherReason: 'Other',
-    unrecognizedDisputeReason: 'Customer does not recognize the selected charge.',
-    wrongAmountDisputeReason: 'Customer reports that the transaction amount is incorrect.',
-    chargedTwiceDisputeReason: 'Customer reports a duplicate charge.',
-    atmCashDisputeReason: 'Customer reports an ATM or cash withdrawal issue.',
-    otherDisputeReason: 'Customer reports another issue with the selected transaction.',
-    escalationContinueMessage: 'You can continue chatting while your case is under human review.',
+    unrecognizedDisputeReason: 'Unrecognized charge on the selected transaction.',
+    wrongAmountDisputeReason: 'Incorrect amount on the selected transaction.',
+    chargedTwiceDisputeReason: 'Duplicate charge on the selected transaction.',
+    atmCashDisputeReason: 'ATM or cash withdrawal issue on the selected transaction.',
+    otherDisputeReason: 'Another issue with the selected transaction.',
+    disputeOpenedMessage: "I've opened this dispute. I can keep helping you here while the case remains open.",
+    escalationContinueMessage: "I tried to provide guidance, but this issue requires human review. I've escalated the same dispute to a specialist. You can continue adding information here while the case is reviewed.",
     customerContextLabel: 'Customer',
     chooseAnotherTransaction: 'Select another transaction from the list.',
     placeholder: 'Ask about a transaction dispute...',
@@ -315,12 +316,13 @@ const copy = {
     chargedTwice: 'Cobro duplicado',
     atmCashIssue: 'Problema de ATM / efectivo',
     otherReason: 'Otro',
-    unrecognizedDisputeReason: 'El cliente no reconoce el cargo seleccionado.',
-    wrongAmountDisputeReason: 'El cliente reporta que el monto de la transacción es incorrecto.',
-    chargedTwiceDisputeReason: 'El cliente reporta un cobro duplicado.',
-    atmCashDisputeReason: 'El cliente reporta un problema con ATM o retiro de efectivo.',
-    otherDisputeReason: 'El cliente reporta otro problema con la transacción seleccionada.',
-    escalationContinueMessage: 'Puedes seguir escribiendo mientras tu caso está bajo revisión humana.',
+    unrecognizedDisputeReason: 'Cargo no reconocido en la transacción seleccionada.',
+    wrongAmountDisputeReason: 'Monto incorrecto en la transacción seleccionada.',
+    chargedTwiceDisputeReason: 'Cobro duplicado en la transacción seleccionada.',
+    atmCashDisputeReason: 'Problema de ATM o retiro de efectivo en la transacción seleccionada.',
+    otherDisputeReason: 'Otro problema con la transacción seleccionada.',
+    disputeOpenedMessage: 'He abierto esta disputa. Puedo seguir ayudándote aquí mientras el caso permanezca abierto.',
+    escalationContinueMessage: 'Intenté orientarte, pero este caso requiere revisión humana. He escalado la misma disputa a un especialista. Puedes seguir agregando información aquí mientras revisan el caso.',
     customerContextLabel: 'Cliente',
     chooseAnotherTransaction: 'Selecciona otra transacción de la lista.',
     placeholder: 'Pregunta sobre una disputa de transacción...',
@@ -443,12 +445,13 @@ const copy = {
     chargedTwice: 'Cobrança duplicada',
     atmCashIssue: 'Problema de ATM / dinheiro',
     otherReason: 'Outro',
-    unrecognizedDisputeReason: 'O cliente não reconhece a cobrança selecionada.',
-    wrongAmountDisputeReason: 'O cliente informa que o valor da transação está incorreto.',
-    chargedTwiceDisputeReason: 'O cliente informa uma cobrança duplicada.',
-    atmCashDisputeReason: 'O cliente informa um problema com ATM ou saque em dinheiro.',
-    otherDisputeReason: 'O cliente informa outro problema com a transação selecionada.',
-    escalationContinueMessage: 'Você pode continuar escrevendo enquanto o caso está em análise humana.',
+    unrecognizedDisputeReason: 'Cobrança não reconhecida na transação selecionada.',
+    wrongAmountDisputeReason: 'Valor incorreto na transação selecionada.',
+    chargedTwiceDisputeReason: 'Cobrança duplicada na transação selecionada.',
+    atmCashDisputeReason: 'Problema de ATM ou saque em dinheiro na transação selecionada.',
+    otherDisputeReason: 'Outro problema com a transação selecionada.',
+    disputeOpenedMessage: 'Abri esta contestação. Posso continuar ajudando você aqui enquanto o caso permanecer aberto.',
+    escalationContinueMessage: 'Tentei orientar você, mas este caso exige revisão humana. Encaminhei a mesma contestação para um especialista. Você pode continuar adicionando informações aqui enquanto o caso é analisado.',
     customerContextLabel: 'Cliente',
     chooseAnotherTransaction: 'Selecione outra transação da lista.',
     placeholder: 'Pergunte sobre uma contestação de transação...',
@@ -582,6 +585,34 @@ function detectAccountHistoryIntent(value) {
   if (wantsTransactions) return 'transactions'
   if (wantsDisputes) return 'disputes'
   return null
+}
+
+function shouldEscalateActiveDispute(message, result = {}) {
+  if (result?.human_escalation_requested) return true
+
+  const normalized = normalizeAccountHistoryIntent(message)
+  const signals = [
+    'i dont recognize',
+    'i do not recognize',
+    'not my charge',
+    'not my transaction',
+    'unauthorized',
+    'fraud',
+    'stolen',
+    'no reconozco',
+    'no es mi cargo',
+    'no es mi transaccion',
+    'no autorizada',
+    'no autorizado',
+    'fraude',
+    'nao reconheco',
+    'nao e minha cobranca',
+    'nao e minha transacao',
+    'nao autorizada',
+    'nao autorizado',
+  ]
+
+  return signals.some((signal) => normalized.includes(signal))
 }
 
 function Brand() {
@@ -1063,6 +1094,7 @@ function DisputeDetailPanel({ t, item, transaction }) {
     case_id: item.dispute_id,
     case_date: item.created_at,
     source: 'FACTORED_AI',
+    customer_id: item.customer_id,
     case_type: 'Dispute',
     category: 'Transaction dispute',
     subcategory: null,
@@ -1204,6 +1236,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
   const [showDisputeReasons, setShowDisputeReasons] = useState(false)
   const [awaitingSelectedTransactionIssue, setAwaitingSelectedTransactionIssue] = useState(false)
   const [forceHumanReview, setForceHumanReview] = useState(false)
+  const [activeDispute, setActiveDispute] = useState(null)
   const composerRef = React.useRef(null)
   const messagesRef = React.useRef(null)
   const welcomeLoadedRef = React.useRef(false)
@@ -1347,6 +1380,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     setReadyToOpenDispute(false)
     setShowDisputeReasons(false)
     setAwaitingSelectedTransactionIssue(false)
+    setActiveDispute(null)
     selectionHandledRef.current = ''
     onTransaction(null)
     onRightPanelData(null)
@@ -1431,6 +1465,17 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         setAwaitingSelectedTransactionIssue(false)
       }
 
+      if (
+        activeDispute?.status === 'OPEN'
+        && transaction
+        && shouldEscalateActiveDispute(message, result)
+      ) {
+        setAwaitingFeedback(false)
+        setForceHumanReview(true)
+        await openDispute(message, true)
+        return
+      }
+
       if (result.needs_satisfaction_feedback) {
         setForceHumanReview(false)
         setPendingDisputeReason(message)
@@ -1446,6 +1491,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
       if (result.needs_transaction_selection) {
         if (!result.human_escalation_requested) setForceHumanReview(false)
         await enterTransactionSelection(message)
+        return
       }
     } catch (error) {
       showError(error)
@@ -1467,6 +1513,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     } else {
       setTransactions([])
       setTransactionsError('')
+      setActiveDispute(null)
       onTransaction(null)
       onRightPanelData(null)
     }
@@ -1556,7 +1603,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         addBot(result.response)
       }
 
-      if (looksPersonalDispute(message)) {
+      if (shouldEscalateActiveDispute(message, result)) {
         setPendingDisputeReason(message)
         setForceHumanReview(true)
         setAwaitingSelectedTransactionIssue(false)
@@ -1564,6 +1611,8 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         return
       }
 
+      setPendingDisputeReason(message)
+      setReadyToOpenDispute(true)
       setAwaitingSelectedTransactionIssue(true)
     } catch (error) {
       showError(error)
@@ -1623,6 +1672,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
   function chooseAnotherTransaction() {
     addUser(t.chooseAnother)
     selectionHandledRef.current = ''
+    setActiveDispute(null)
     onTransaction(null)
     setReadyToOpenDispute(false)
     setShowDisputeReasons(false)
@@ -1656,23 +1706,27 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         force_human_review: requestedHumanReview,
       })
 
+      setActiveDispute(result.dispute)
+
       if (result.response) {
         addBot(result.response)
+      } else if (result.dispute?.status === 'ESCALATED') {
+        addBot(t.escalationContinueMessage)
       } else {
-        addBot(`${result.dispute.status}: ${result.dispute.dispute_id}`)
+        addBot(t.disputeOpenedMessage)
       }
 
       if (result.handoff) {
-        onTransaction(null)
-        onRightPanelData({ type: 'handoff', handoff: result.handoff, dispute: result.dispute })
-        addBot(t.escalationContinueMessage)
+        onRightPanelData({
+          type: 'handoff',
+          handoff: result.handoff,
+          dispute: result.dispute,
+        })
       } else {
-        const selectedTransaction = transaction
-        onTransaction(null)
         onRightPanelData({
           type: 'dispute',
           item: result.dispute,
-          linkedTransaction: selectedTransaction,
+          linkedTransaction: transaction,
         })
       }
 
@@ -1681,6 +1735,10 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
       setShowDisputeReasons(false)
       setAwaitingSelectedTransactionIssue(false)
       setShowTransactionSelection(false)
+
+      if (result.dispute?.status === 'OPEN' || result.dispute?.status === 'ESCALATED') {
+        setInteractionFinished(false)
+      }
     } catch (error) {
       showError(error)
     }

@@ -776,10 +776,29 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
     except Exception:
         logger.exception("Interaction metric publication failed")
 
-    response = None
     handoff = None
+
     if dispute["status"] == "ESCALATED":
-        response = get_prompt_config()["ESCALATION_MESSAGE"][language]
+        response = {
+            "en": (
+                "I tried to provide guidance, but this issue requires human review. "
+                "I've escalated the existing dispute to a specialist. They will receive "
+                "the verified transaction details and the information you've already provided. "
+                "You can continue adding information here while the case is reviewed."
+            ),
+            "es": (
+                "Intenté orientarte, pero este caso requiere revisión humana. "
+                "He escalado la disputa existente a un especialista. Recibirá los datos "
+                "verificados de la transacción y la información que ya proporcionaste. "
+                "Puedes seguir agregando información aquí mientras revisan el caso."
+            ),
+            "pt": (
+                "Tentei orientar você, mas este caso exige revisão humana. "
+                "Encaminhei a contestação existente para um especialista. Ele receberá "
+                "os dados verificados da transação e as informações que você já forneceu. "
+                "Você pode continuar adicionando informações aqui enquanto o caso é analisado."
+            ),
+        }[language]
         handoff = _build_handoff(
             customer_id=customer_id,
             dispute=dispute,
@@ -787,12 +806,27 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
             reason=safe_reason,
             evidence_ids=evidence_ids,
         )
+    else:
+        response = {
+            "en": (
+                "I've opened the dispute for this transaction. I can keep helping you here. "
+                "If the issue requires a specialist, I'll escalate this same case for human review."
+            ),
+            "es": (
+                "He abierto la disputa para esta transacción. Puedo seguir ayudándote aquí. "
+                "Si el caso requiere un especialista, escalaré esta misma disputa para revisión humana."
+            ),
+            "pt": (
+                "Abri a contestação para esta transação. Posso continuar ajudando você aqui. "
+                "Se o caso exigir um especialista, encaminharei esta mesma contestação para revisão humana."
+            ),
+        }[language]
 
     return {
         "dispute": dispute,
         "response": response,
         "handoff": handoff,
-        "interaction_finished": dispute["status"] != "ESCALATED",
+        "interaction_finished": False,
     }
 
 

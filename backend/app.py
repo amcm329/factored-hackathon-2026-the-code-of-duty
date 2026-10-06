@@ -40,6 +40,11 @@ app = FastAPI(
 )
 
 supported_languages = {"en", "es", "pt"}
+
+
+# We keep a lightweight per-interaction demo state so the presentation can
+# demonstrate a real AI conversation that can resolve the issue automatically.
+_demo_ai_conversation_turns = {}
 personal_dispute_signals = (
     "i don't recognize",
     "i do not recognize",
@@ -696,6 +701,30 @@ def _demo_dispute(customer_id, transaction, reason):
     }
 
 
+def _demo_ai_message(message, turn):
+    """Build one internal instruction for the automated-resolution demo conversation."""
+
+    if turn < 3:
+        instruction = (
+            "Continue a short customer-service conversation about this disputed transaction. "
+            "Ask exactly one concise follow-up question that helps understand the customer's concern. "
+            "Do not tell the customer to select a transaction. "
+            "Do not escalate to a human. "
+            "Do not finish the interaction yet."
+        )
+    else:
+        instruction = (
+            "Use the conversation so far to provide a concise automated resolution or practical explanation. "
+            "Give the customer one clear verification or corrective step they can take now. "
+            "Do not tell the customer to select a transaction. "
+            "Do not escalate to a human. "
+            "Do not claim a reimbursement or bank action that has not actually occurred. "
+            "Make the answer complete enough for the customer to confirm whether the issue is resolved."
+        )
+
+    return f"{message}\n\nINTERNAL DEMO FLOW INSTRUCTION: {instruction}"
+
+
 @app.get("/health")
 def health():
     """Return backend health status."""
@@ -1104,6 +1133,55 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             "needs_satisfaction_feedback": False,
             "needs_transaction_selection": False,
         }
+
+    if os.getenv("DEMO_MODE", "0").strip() == "1":
+        previous_turns = _demo_ai_conversation_turns.get(interaction_id, 0)
+        demo_conversation_active = personal_dispute or previous_turns > 0
+
+        if demo_conversation_active:
+            if not customer_id:
+                return {
+                    "response": None,
+                    "authentication_required": True,
+                    "personal_dispute": True,
+                    "needs_satisfaction_feedback": False,
+                    "needs_transaction_selection": False,
+                }
+
+            turn = min(previous_turns + 1, 3)
+            _demo_ai_conversation_turns[interaction_id] = turn
+            message_language = detect_language(
+                message,
+                fallback=language,
+            )
+            safe_message = sanitize_text(
+                message,
+                message_language,
+            )
+            reply = generate_reply(
+                message=_demo_ai_message(safe_message, turn),
+                language=language,
+                history=history,
+                evidence_context=[],
+                similar_cases=[],
+            )
+
+            try:
+                record_interaction_turn(
+                    interaction_id=interaction_id,
+                    total_tokens=reply["total_tokens"],
+                )
+            except Exception:
+                logger.exception("Interaction metric persistence failed")
+
+            return {
+                "response": reply["response"],
+                "personal_dispute": True,
+                "retrieval_used": False,
+                "needs_satisfaction_feedback": turn >= 3,
+                "needs_transaction_selection": False,
+                "authentication_required": False,
+            }
 
     message_language = detect_language(
         message,

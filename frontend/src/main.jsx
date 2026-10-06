@@ -4,7 +4,6 @@ import {
   CalendarDays,
   ChevronDown,
   CreditCard,
-  FileText,
   Globe2,
   LockKeyhole,
   LogIn,
@@ -118,6 +117,11 @@ const copy = {
     selectTransaction: 'Select the transaction you want to dispute.',
     select: 'Select',
     openDispute: 'Open dispute',
+    selectedTransactionLead: "You've selected",
+    confirmSelectedTransaction: 'Would you like to dispute this transaction?',
+    disputeSelected: 'Yes, dispute it',
+    chooseAnother: 'No, choose another',
+    chooseAnotherTransaction: 'Select another transaction from the list.',
     placeholder: 'Ask about a transaction dispute...',
     details: 'Transaction Details',
     merchant: 'Merchant',
@@ -223,6 +227,11 @@ const copy = {
     selectTransaction: 'Selecciona la transacción que quieres disputar.',
     select: 'Seleccionar',
     openDispute: 'Abrir disputa',
+    selectedTransactionLead: 'Seleccionaste',
+    confirmSelectedTransaction: '¿Quieres disputar esta transacción?',
+    disputeSelected: 'Sí, disputarla',
+    chooseAnother: 'No, elegir otra',
+    chooseAnotherTransaction: 'Selecciona otra transacción de la lista.',
     placeholder: 'Pregunta sobre una disputa de transacción...',
     details: 'Detalles de la transacción',
     merchant: 'Comercio',
@@ -328,6 +337,11 @@ const copy = {
     selectTransaction: 'Selecione a transação que deseja contestar.',
     select: 'Selecionar',
     openDispute: 'Abrir contestação',
+    selectedTransactionLead: 'Você selecionou',
+    confirmSelectedTransaction: 'Deseja contestar esta transação?',
+    disputeSelected: 'Sim, contestar',
+    chooseAnother: 'Não, escolher outra',
+    chooseAnotherTransaction: 'Selecione outra transação da lista.',
     placeholder: 'Pergunte sobre uma contestação de transação...',
     details: 'Detalhes da transação',
     merchant: 'Estabelecimento',
@@ -780,23 +794,47 @@ function CaseDetailPanel({ t, item, linkedTransaction }) {
   )
 }
 
-function TransactionHistoryPanel({ t, items }) {
+function TransactionHistoryPanel({ t, items, selectable = false, selectedTransactionId = null, onSelect = null }) {
   return (
     <aside className="details-panel history-panel">
       <h2>{t.transactionHistoryTitle}</h2>
+      {selectable && <p className="transaction-selection-help">{t.selectTransaction}</p>}
       {!items.length && <p className="history-empty">{t.noHistory}</p>}
       <div className="history-list">
-        {items.map((item) => (
-          <div className="history-item" key={item.transaction_id}>
-            <div className="history-item-head">
-              <strong>{item.merchant || '-'}</strong>
-              <span>{item.amount || '-'}</span>
-            </div>
-            <small>{[item.date, item.time].filter(Boolean).join(' ')}</small>
-            {item.category && <div className="history-meta"><span>{item.category}</span></div>}
-            {item.location && <div className="history-meta"><span>{item.location}</span></div>}
-          </div>
-        ))}
+        {items.map((item) => {
+          const selected = selectedTransactionId === item.transaction_id
+          const content = (
+            <>
+              <div className="history-item-head">
+                <strong>{item.merchant || '-'}</strong>
+                <span>{item.amount || '-'}</span>
+              </div>
+              <small>{[item.date, item.time].filter(Boolean).join(' ')}</small>
+              {item.category && <div className="history-meta"><span>{item.category}</span></div>}
+              {item.location && <div className="history-meta"><span>{item.location}</span></div>}
+            </>
+          )
+
+          if (!selectable) {
+            return <div className="history-item" key={item.transaction_id}>{content}</div>
+          }
+
+          return (
+            <label
+              className={`history-item transaction-history-choice ${selected ? 'selected' : ''}`}
+              key={item.transaction_id}
+            >
+              <input
+                className="transaction-radio"
+                type="radio"
+                name="dispute-transaction"
+                checked={selected}
+                onChange={() => onSelect?.(item)}
+              />
+              <div className="transaction-history-choice-body">{content}</div>
+            </label>
+          )
+        })}
       </div>
     </aside>
   )
@@ -870,7 +908,7 @@ function HandoffPanel({ t, handoff, dispute }) {
   )
 }
 
-function RightPanel({ t, authenticated, transaction, panelData, onLogin }) {
+function RightPanel({ t, authenticated, transaction, panelData, onLogin, onSelectTransaction }) {
   if (authenticated && panelData?.type === 'handoff') {
     return <HandoffPanel t={t} handoff={panelData.handoff} dispute={panelData.dispute} />
   }
@@ -881,6 +919,18 @@ function RightPanel({ t, authenticated, transaction, panelData, onLogin }) {
 
   if (authenticated && panelData?.type === 'case_detail') {
     return <CaseDetailPanel t={t} item={panelData.item} linkedTransaction={panelData.linkedTransaction} />
+  }
+
+  if (authenticated && panelData?.type === 'transaction_selection' && !transaction) {
+    return (
+      <TransactionHistoryPanel
+        t={t}
+        items={panelData.items || []}
+        selectable
+        selectedTransactionId={null}
+        onSelect={onSelectTransaction}
+      />
+    )
   }
 
   if (transaction) {
@@ -914,6 +964,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
   const composerRef = React.useRef(null)
   const messagesRef = React.useRef(null)
   const welcomeLoadedRef = React.useRef(false)
+  const selectionHandledRef = React.useRef('')
 
   function addMessage(from, text, extra = {}) {
     if (!text) return
@@ -967,10 +1018,18 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
     setPendingDisputeReason(reason)
     setAwaitingFeedback(false)
     setReadyToOpenDispute(false)
+    selectionHandledRef.current = ''
     onTransaction(null)
     onRightPanelData(null)
     const available = transactions.length ? transactions : await loadTransactions()
     setShowTransactionSelection(true)
+
+    if (available !== null) {
+      onRightPanelData({
+        type: 'transaction_selection',
+        items: available,
+      })
+    }
 
     if (available !== null && !available.length) {
       setTransactionsError(t.noTransactions)
@@ -1077,6 +1136,16 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
   }, [authenticated, pendingLoginRequest])
 
   React.useEffect(() => {
+    if (!showTransactionSelection || !transaction || interactionFinished) return
+    if (selectionHandledRef.current === transaction.transaction_id) return
+
+    selectionHandledRef.current = transaction.transaction_id
+    setShowTransactionSelection(false)
+    setReadyToOpenDispute(true)
+    onRightPanelData(null)
+  }, [transaction, showTransactionSelection, interactionFinished])
+
+  React.useEffect(() => {
     const container = messagesRef.current
 
     if (container) {
@@ -1143,10 +1212,25 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
   }
 
   function selectTransaction(selected) {
-    onRightPanelData(null)
     onTransaction(selected)
-    setShowTransactionSelection(false)
-    setReadyToOpenDispute(true)
+  }
+
+  async function confirmSelectedTransaction() {
+    addUser(t.yes)
+    await openDispute()
+  }
+
+  function chooseAnotherTransaction() {
+    addUser(t.no)
+    selectionHandledRef.current = ''
+    onTransaction(null)
+    setReadyToOpenDispute(false)
+    setShowTransactionSelection(true)
+    onRightPanelData({
+      type: 'transaction_selection',
+      items: transactions,
+    })
+    addBot(t.chooseAnotherTransaction)
   }
 
   async function openDispute() {
@@ -1216,22 +1300,27 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
         ))}
 
         {showTransactionSelection && authenticated && !interactionFinished && (
-          <div className="transaction-selection">
+          <div className="transaction-selection transaction-selection-prompt">
             <div className="message-bubble bot">{t.selectTransaction}</div>
             {transactionsError && <div className="selection-error">{transactionsError}</div>}
-            {transactions.map((item) => (
-              <div className="transaction-choice" key={item.transaction_id}>
-                <TransactionCard transaction={item} />
-                <button className="primary" type="button" onClick={() => selectTransaction(item)}>{t.select}</button>
-              </div>
-            ))}
           </div>
         )}
 
         {readyToOpenDispute && transaction && !interactionFinished && (
-          <div className="selected-transaction-action">
-            <TransactionCard transaction={transaction} />
-            <button className="primary" type="button" onClick={openDispute}><FileText size={20} />{t.openDispute}</button>
+          <div className="message-row bot selection-confirmation-row">
+            <div className="bot-avatar"><img src={hermesIcon} alt="" /></div>
+            <div className="message-stack selection-confirmation-stack">
+              <div className="message-bubble bot selection-confirmation-bubble">
+                <span>{t.selectedTransactionLead}:</span>
+                <strong>{transaction.merchant}</strong>
+                <span>{[transaction.amount, transaction.date, transaction.time].filter(Boolean).join(' · ')}</span>
+                <span>{t.confirmSelectedTransaction}</span>
+              </div>
+              <div className="feedback-actions selection-confirmation-actions">
+                <button className="primary" type="button" onClick={confirmSelectedTransaction}>{t.disputeSelected}</button>
+                <button className="secondary" type="button" onClick={chooseAnotherTransaction}>{t.chooseAnother}</button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1342,6 +1431,7 @@ function App() {
             transaction={transaction}
             panelData={panelData}
             onLogin={() => setShowLogin(true)}
+            onSelectTransaction={setTransaction}
           />
         </div>
       </main>

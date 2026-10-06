@@ -104,18 +104,28 @@ def get_customer_segment(customer_id):
 def get_customer_transactions(customer_id, limit=20, start_date=None, end_date=None):
     """Read customer transactions, optionally restricted to an inclusive date range."""
 
-    where_clauses = ["customer_id = :customer_id"]
+    where_clauses = [
+        "tx.customer_id = :customer_id",
+        """
+        NOT EXISTS (
+            SELECT 1
+            FROM dispute_cases d
+            WHERE d.customer_id = tx.customer_id
+              AND d.transaction_id = tx.transaction_id
+        )
+        """,
+    ]
     params = {
         "customer_id": customer_id,
         "limit": int(limit),
     }
 
     if start_date is not None:
-        where_clauses.append("transaction_date >= :start_date")
+        where_clauses.append("tx.transaction_date >= :start_date")
         params["start_date"] = start_date
 
     if end_date is not None:
-        where_clauses.append("transaction_date < (:end_date + INTERVAL '1 day')")
+        where_clauses.append("tx.transaction_date < (:end_date + INTERVAL '1 day')")
         params["end_date"] = end_date
 
     query = text(
@@ -134,7 +144,7 @@ def get_customer_transactions(customer_id, limit=20, start_date=None, end_date=N
             transaction_country,
             transaction_city,
             transaction_status
-        FROM transactions
+        FROM transactions tx
         WHERE {' AND '.join(where_clauses)}
         ORDER BY transaction_date DESC
         LIMIT :limit

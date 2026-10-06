@@ -94,6 +94,26 @@ const personal_dispute_signals = [
   'abrir uma contestacao',
 ]
 
+const transaction_history_signals = [
+  'my transaction',
+  'my transactions',
+  'mis transaccion',
+  'mis transacciones',
+  'minha transacao',
+  'minhas transacoes',
+]
+
+const dispute_history_signals = [
+  'my dispute',
+  'my disputes',
+  'mis disputa',
+  'mis disputas',
+  'minha disputa',
+  'minhas disputas',
+  'minha contestacao',
+  'minhas contestacoes',
+]
+
 const copy = {
   en: {
     title: 'Hermes',
@@ -141,6 +161,10 @@ const copy = {
     caseDetailsTitle: 'Case details',
     summary: 'Summary',
     transactionHistoryTitle: 'My transactions',
+    transactionSelectionHelp: "Select the transaction you'd like to delve into.",
+    transactionsShown: 'Here are your available transactions.',
+    disputesShown: 'Here are your disputes and complaints.',
+    accountHistoryShown: 'Here are your available transactions and your disputes.',
     noHistory: 'No records found.',
     status: 'Status',
     caseId: 'Case ID',
@@ -251,6 +275,10 @@ const copy = {
     caseDetailsTitle: 'Detalles del caso',
     summary: 'Resumen',
     transactionHistoryTitle: 'Mis transacciones',
+    transactionSelectionHelp: 'Selecciona la transacción que quieres revisar en detalle.',
+    transactionsShown: 'Estas son tus transacciones disponibles.',
+    disputesShown: 'Estas son tus disputas y reclamos.',
+    accountHistoryShown: 'Estas son tus transacciones disponibles y tus disputas.',
     noHistory: 'No se encontraron registros.',
     status: 'Estado',
     caseId: 'ID del caso',
@@ -361,6 +389,10 @@ const copy = {
     caseDetailsTitle: 'Detalhes do caso',
     summary: 'Resumo',
     transactionHistoryTitle: 'Minhas transações',
+    transactionSelectionHelp: 'Selecione a transação que deseja analisar em detalhe.',
+    transactionsShown: 'Estas são suas transações disponíveis.',
+    disputesShown: 'Estas são suas contestações e reclamações.',
+    accountHistoryShown: 'Estas são suas transações disponíveis e suas contestações.',
     noHistory: 'Nenhum registro encontrado.',
     status: 'Status',
     caseId: 'ID do caso',
@@ -430,6 +462,27 @@ const copy = {
 function looksPersonalDispute(value) {
   const normalized = String(value || '').toLowerCase().replace(/’/g, "'").replace(/\s+/g, ' ').trim()
   return personal_dispute_signals.some((signal) => normalized.includes(signal))
+}
+
+function normalizeAccountHistoryIntent(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function detectAccountHistoryIntent(value) {
+  const normalized = normalizeAccountHistoryIntent(value)
+  const wantsTransactions = transaction_history_signals.some((signal) => normalized.includes(signal))
+  const wantsDisputes = dispute_history_signals.some((signal) => normalized.includes(signal))
+
+  if (wantsTransactions && wantsDisputes) return 'both'
+  if (wantsTransactions) return 'transactions'
+  if (wantsDisputes) return 'disputes'
+  return null
 }
 
 function Brand() {
@@ -798,7 +851,7 @@ function TransactionHistoryPanel({ t, items, selectable = false, selectedTransac
   return (
     <aside className="details-panel history-panel">
       <h2>{t.transactionHistoryTitle}</h2>
-      {selectable && <p className="transaction-selection-help">{t.selectTransaction}</p>}
+      <p className="transaction-selection-help">{t.transactionSelectionHelp}</p>
       {!items.length && <p className="history-empty">{t.noHistory}</p>}
       <div className="history-list">
         {items.map((item) => {
@@ -835,6 +888,56 @@ function TransactionHistoryPanel({ t, items, selectable = false, selectedTransac
             </label>
           )
         })}
+      </div>
+    </aside>
+  )
+}
+
+function AccountHistoryPanel({ t, transactions, cases, selectedTransactionId = null, onSelectTransaction = null }) {
+  return (
+    <aside className="details-panel history-panel">
+      <h2>{t.transactionHistoryTitle}</h2>
+      <p className="transaction-selection-help">{t.transactionSelectionHelp}</p>
+      {!transactions.length && <p className="history-empty">{t.noHistory}</p>}
+      <div className="history-list">
+        {transactions.map((item) => {
+          const selected = selectedTransactionId === item.transaction_id
+          return (
+            <label
+              className={`history-item transaction-history-choice ${selected ? 'selected' : ''}`}
+              key={item.transaction_id}
+            >
+              <input
+                className="transaction-radio"
+                type="radio"
+                name="account-history-transaction"
+                checked={selected}
+                onChange={() => onSelectTransaction?.(item)}
+              />
+              <div className="transaction-history-choice-body">
+                <div className="history-item-head">
+                  <strong>{item.merchant || '-'}</strong>
+                  <span>{item.amount || '-'}</span>
+                </div>
+                <small>{[item.date, item.time].filter(Boolean).join(' ')}</small>
+                {item.category && <div className="history-meta"><span>{item.category}</span></div>}
+                {item.location && <div className="history-meta"><span>{item.location}</span></div>}
+              </div>
+            </label>
+          )
+        })}
+      </div>
+
+      <div className="linked-transaction-block">
+        <h2>{t.caseHistoryTitle}</h2>
+        {!cases.length && <p className="history-empty">{t.noHistory}</p>}
+        <div className="history-list">
+          {cases.map((item) => (
+            <div className="history-item" key={item.case_id}>
+              <CaseDetailContent t={t} item={item} />
+            </div>
+          ))}
+        </div>
       </div>
     </aside>
   )
@@ -933,16 +1036,36 @@ function RightPanel({ t, authenticated, transaction, panelData, onLogin, onSelec
     )
   }
 
+  if (authenticated && panelData?.type === 'overview') {
+    return (
+      <AccountHistoryPanel
+        t={t}
+        transactions={panelData.transactions || []}
+        cases={panelData.cases || []}
+        selectedTransactionId={transaction?.transaction_id || null}
+        onSelectTransaction={onSelectTransaction}
+      />
+    )
+  }
+
+  if (authenticated && panelData?.type === 'transactions') {
+    return (
+      <TransactionHistoryPanel
+        t={t}
+        items={panelData.items || []}
+        selectable
+        selectedTransactionId={transaction?.transaction_id || null}
+        onSelect={onSelectTransaction}
+      />
+    )
+  }
+
   if (transaction) {
     return <TransactionDetails t={t} authenticated={authenticated} transaction={transaction} onLogin={onLogin} />
   }
 
   if (authenticated && panelData?.type === 'cases') {
     return <CaseHistoryPanel t={t} items={panelData.items || []} />
-  }
-
-  if (authenticated && panelData?.type === 'transactions') {
-    return <TransactionHistoryPanel t={t} items={panelData.items || []} />
   }
 
   return <TransactionDetails t={t} authenticated={authenticated} transaction={null} onLogin={onLogin} />
@@ -1014,6 +1137,57 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
     }
   }
 
+  async function loadDisputes() {
+    if (!authenticated) return []
+
+    const prompts = {
+      en: 'my disputes',
+      es: 'mis disputas',
+      pt: 'minhas contestações',
+    }
+    const result = await send_chat(
+      prompts[language] || prompts.en,
+      language,
+      [],
+      interactionId,
+    )
+    return Array.isArray(result.case_history) ? result.case_history : []
+  }
+
+  async function showAccountHistory(intent) {
+    onTransaction(null)
+    setShowTransactionSelection(false)
+    setReadyToOpenDispute(false)
+
+    if (intent === 'transactions') {
+      const available = await loadTransactions()
+      if (available === null) return
+      onRightPanelData({ type: 'transactions', items: available })
+      addBot(t.transactionsShown)
+      return
+    }
+
+    if (intent === 'disputes') {
+      const cases = await loadDisputes()
+      onRightPanelData({ type: 'cases', items: cases })
+      addBot(t.disputesShown)
+      return
+    }
+
+    const [available, cases] = await Promise.all([
+      loadTransactions(),
+      loadDisputes(),
+    ])
+    if (available === null) return
+
+    onRightPanelData({
+      type: 'overview',
+      transactions: available,
+      cases,
+    })
+    addBot(t.accountHistoryShown)
+  }
+
   async function enterTransactionSelection(reason) {
     setPendingDisputeReason(reason)
     setAwaitingFeedback(false)
@@ -1038,6 +1212,19 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
 
   async function processChatMessage(message, history) {
     try {
+      const accountHistoryIntent = detectAccountHistoryIntent(message)
+
+      if (accountHistoryIntent) {
+        if (!authenticated) {
+          setPendingLoginRequest({ message, history })
+          onRequireLogin()
+          return
+        }
+
+        await showAccountHistory(accountHistoryIntent)
+        return
+      }
+
       const result = await send_chat(
         message,
         language,

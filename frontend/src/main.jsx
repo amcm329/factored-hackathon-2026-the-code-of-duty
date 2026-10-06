@@ -138,9 +138,13 @@ const copy = {
     select: 'Select',
     openDispute: 'Open dispute',
     selectedTransactionLead: "You've selected",
-    confirmSelectedTransaction: 'Would you like to dispute this transaction?',
-    disputeSelected: 'Yes, dispute it',
-    chooseAnother: 'No, choose another',
+    confirmSelectedTransaction: "Would you like to start a dispute, or report that you don't recognize this charge?",
+    disputeSelected: 'Start a dispute',
+    unrecognizedCharge: "I don't recognize this charge",
+    chooseAnother: 'Choose another',
+    genericDisputeReason: 'Customer wants to dispute the selected transaction.',
+    unrecognizedDisputeReason: 'Customer does not recognize the selected charge.',
+    customerContextLabel: 'Customer',
     chooseAnotherTransaction: 'Select another transaction from the list.',
     placeholder: 'Ask about a transaction dispute...',
     details: 'Transaction Details',
@@ -252,9 +256,13 @@ const copy = {
     select: 'Seleccionar',
     openDispute: 'Abrir disputa',
     selectedTransactionLead: 'Seleccionaste',
-    confirmSelectedTransaction: '¿Quieres disputar esta transacción?',
-    disputeSelected: 'Sí, disputarla',
-    chooseAnother: 'No, elegir otra',
+    confirmSelectedTransaction: '¿Quieres iniciar una disputa o reportar que no reconoces este cargo?',
+    disputeSelected: 'Iniciar disputa',
+    unrecognizedCharge: 'No reconozco este cargo',
+    chooseAnother: 'Elegir otra',
+    genericDisputeReason: 'El cliente quiere disputar la transacción seleccionada.',
+    unrecognizedDisputeReason: 'El cliente no reconoce el cargo seleccionado.',
+    customerContextLabel: 'Cliente',
     chooseAnotherTransaction: 'Selecciona otra transacción de la lista.',
     placeholder: 'Pregunta sobre una disputa de transacción...',
     details: 'Detalles de la transacción',
@@ -366,9 +374,13 @@ const copy = {
     select: 'Selecionar',
     openDispute: 'Abrir contestação',
     selectedTransactionLead: 'Você selecionou',
-    confirmSelectedTransaction: 'Deseja contestar esta transação?',
-    disputeSelected: 'Sim, contestar',
-    chooseAnother: 'Não, escolher outra',
+    confirmSelectedTransaction: 'Deseja iniciar uma contestação ou informar que não reconhece esta cobrança?',
+    disputeSelected: 'Iniciar contestação',
+    unrecognizedCharge: 'Não reconheço esta cobrança',
+    chooseAnother: 'Escolher outra',
+    genericDisputeReason: 'O cliente deseja contestar a transação selecionada.',
+    unrecognizedDisputeReason: 'O cliente não reconhece a cobrança selecionada.',
+    customerContextLabel: 'Cliente',
     chooseAnotherTransaction: 'Selecione outra transação da lista.',
     placeholder: 'Pergunte sobre uma contestação de transação...',
     details: 'Detalhes da transação',
@@ -1024,13 +1036,13 @@ function RightPanel({ t, authenticated, transaction, panelData, onLogin, onSelec
     return <CaseDetailPanel t={t} item={panelData.item} linkedTransaction={panelData.linkedTransaction} />
   }
 
-  if (authenticated && panelData?.type === 'transaction_selection' && !transaction) {
+  if (authenticated && panelData?.type === 'transaction_selection') {
     return (
       <TransactionHistoryPanel
         t={t}
         items={panelData.items || []}
         selectable
-        selectedTransactionId={null}
+        selectedTransactionId={transaction?.transaction_id || null}
         onSelect={onSelectTransaction}
       />
     )
@@ -1071,7 +1083,7 @@ function RightPanel({ t, authenticated, transaction, panelData, onLogin, onSelec
   return <TransactionDetails t={t} authenticated={authenticated} transaction={null} onLogin={onLogin} />
 }
 
-function Chat({ t, language, authenticated, transaction, onTransaction, onRightPanelData, onRequireLogin }) {
+function Chat({ t, language, authenticated, customerId, transaction, onTransaction, onRightPanelData, onRequireLogin }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [interactionId] = useState(() => crypto.randomUUID())
@@ -1137,8 +1149,37 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
     }
   }
 
+  function withCustomerContext(response, fallback) {
+    const message = response || fallback
+    if (!customerId) return message
+    return `${t.customerContextLabel}: ${customerId}. ${message}`
+  }
+
+  async function loadTransactionHistory() {
+    if (!authenticated) return { items: [], response: null }
+
+    const prompts = {
+      en: 'my transactions',
+      es: 'mis transacciones',
+      pt: 'minhas transações',
+    }
+    const result = await send_chat(
+      prompts[language] || prompts.en,
+      language,
+      [],
+      interactionId,
+    )
+    const formatted = (result.transaction_history || []).map(formatTransaction).filter(Boolean)
+    setTransactions(formatted)
+    setTransactionsError('')
+    return {
+      items: formatted,
+      response: result.response || null,
+    }
+  }
+
   async function loadDisputes() {
-    if (!authenticated) return []
+    if (!authenticated) return { items: [], response: null }
 
     const prompts = {
       en: 'my disputes',
@@ -1151,41 +1192,43 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
       [],
       interactionId,
     )
-    return Array.isArray(result.case_history) ? result.case_history : []
+    return {
+      items: Array.isArray(result.case_history) ? result.case_history : [],
+      response: result.response || null,
+    }
   }
 
   async function showAccountHistory(intent) {
     onTransaction(null)
+    selectionHandledRef.current = ''
     setShowTransactionSelection(false)
     setReadyToOpenDispute(false)
 
     if (intent === 'transactions') {
-      const available = await loadTransactions()
-      if (available === null) return
-      onRightPanelData({ type: 'transactions', items: available })
-      addBot(t.transactionsShown)
+      const history = await loadTransactionHistory()
+      onRightPanelData({ type: 'transactions', items: history.items })
+      addBot(withCustomerContext(history.response, t.transactionsShown))
       return
     }
 
     if (intent === 'disputes') {
-      const cases = await loadDisputes()
-      onRightPanelData({ type: 'cases', items: cases })
-      addBot(t.disputesShown)
+      const history = await loadDisputes()
+      onRightPanelData({ type: 'cases', items: history.items })
+      addBot(withCustomerContext(history.response, t.disputesShown))
       return
     }
 
-    const [available, cases] = await Promise.all([
-      loadTransactions(),
+    const [transactionHistory, disputeHistory] = await Promise.all([
+      loadTransactionHistory(),
       loadDisputes(),
     ])
-    if (available === null) return
 
     onRightPanelData({
       type: 'overview',
-      transactions: available,
-      cases,
+      transactions: transactionHistory.items,
+      cases: disputeHistory.items,
     })
-    addBot(t.accountHistoryShown)
+    addBot(withCustomerContext(transactionHistory.response, t.accountHistoryShown))
   }
 
   async function enterTransactionSelection(reason) {
@@ -1323,14 +1366,13 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
   }, [authenticated, pendingLoginRequest])
 
   React.useEffect(() => {
-    if (!showTransactionSelection || !transaction || interactionFinished) return
+    if (!transaction || interactionFinished) return
     if (selectionHandledRef.current === transaction.transaction_id) return
 
     selectionHandledRef.current = transaction.transaction_id
     setShowTransactionSelection(false)
     setReadyToOpenDispute(true)
-    onRightPanelData(null)
-  }, [transaction, showTransactionSelection, interactionFinished])
+  }, [transaction, interactionFinished])
 
   React.useEffect(() => {
     const container = messagesRef.current
@@ -1403,12 +1445,20 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
   }
 
   async function confirmSelectedTransaction() {
-    addUser(t.yes)
-    await openDispute()
+    const reason = pendingDisputeReason || t.genericDisputeReason
+    setPendingDisputeReason(reason)
+    addUser(t.disputeSelected)
+    await openDispute(reason)
+  }
+
+  async function reportUnrecognizedTransaction() {
+    setPendingDisputeReason(t.unrecognizedDisputeReason)
+    addUser(t.unrecognizedCharge)
+    await openDispute(t.unrecognizedDisputeReason)
   }
 
   function chooseAnotherTransaction() {
-    addUser(t.no)
+    addUser(t.chooseAnother)
     selectionHandledRef.current = ''
     onTransaction(null)
     setReadyToOpenDispute(false)
@@ -1420,18 +1470,19 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
     addBot(t.chooseAnotherTransaction)
   }
 
-  async function openDispute() {
+  async function openDispute(reasonOverride = '') {
     if (!authenticated) {
       onRequireLogin()
       return
     }
 
-    if (!transaction || !pendingDisputeReason || interactionFinished) return
+    const disputeReason = reasonOverride || pendingDisputeReason
+    if (!transaction || !disputeReason || interactionFinished) return
 
     try {
       const result = await create_dispute({
         transaction_id: transaction.transaction_id,
-        reason: pendingDisputeReason,
+        reason: disputeReason,
         language,
         interaction_id: interactionId,
         force_human_review: forceHumanReview,
@@ -1505,6 +1556,7 @@ function Chat({ t, language, authenticated, transaction, onTransaction, onRightP
               </div>
               <div className="feedback-actions selection-confirmation-actions">
                 <button className="primary" type="button" onClick={confirmSelectedTransaction}>{t.disputeSelected}</button>
+                <button className="primary" type="button" onClick={reportUnrecognizedTransaction}>{t.unrecognizedCharge}</button>
                 <button className="secondary" type="button" onClick={chooseAnotherTransaction}>{t.chooseAnother}</button>
               </div>
             </div>
@@ -1607,6 +1659,7 @@ function App() {
             t={t}
             language={language}
             authenticated={authenticated}
+            customerId={customerId}
             transaction={transaction}
             onTransaction={setTransaction}
             onRightPanelData={setPanelData}

@@ -150,7 +150,7 @@ def get_customer_transactions(customer_id, limit=20, start_date=None, end_date=N
     return [dict(row) for row in rows]
 
 def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
-    """Reads currently eligible complaint records and only open Factored AI disputes for one customer."""
+    """Reads complete eligible complaint records and only open Factored AI disputes for one customer."""
 
     query = text(
         """
@@ -158,6 +158,7 @@ def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
             case_id,
             case_date,
             source,
+            customer_id,
             case_type,
             category,
             subcategory,
@@ -165,30 +166,54 @@ def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
             claimed_amount,
             currency,
             summary,
+            process_date,
+            reception_channel,
+            affected_product_id,
+            related_branch_id,
+            origin_interaction_id,
             resolution,
             priority,
-            affected_product_id,
+            assigned_agent_id,
+            assignment_date,
+            first_response_date,
+            resolution_date,
+            closing_date,
+            sla_breached,
+            resolution_days,
+            compensation_granted,
+            resolution_satisfaction,
+            is_repeat_complainer,
             transaction_id,
             transaction_link_type,
             escalation_probability,
             requires_human_review,
+            updated_at,
             transaction_date,
+            transaction_process_date,
             transaction_product_id,
             transaction_type,
             transaction_category,
             transaction_amount,
             transaction_currency,
+            transaction_amount_usd,
             transaction_channel,
+            transaction_branch_id,
             merchant_name,
             merchant_category,
             transaction_country,
             transaction_city,
-            transaction_status
+            transaction_status,
+            transaction_response_code,
+            transaction_is_fraud,
+            transaction_fraud_score,
+            transaction_latitude,
+            transaction_longitude
         FROM (
             SELECT
                 c.complaint_id::text AS case_id,
                 c.creation_date AS case_date,
                 'BANK_HISTORY'::text AS source,
+                c.customer_id,
                 c.case_type,
                 c.category,
                 c.subcategory,
@@ -196,9 +221,23 @@ def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
                 c.claimed_amount,
                 c.currency,
                 c.description AS summary,
+                c.process_date,
+                c.reception_channel,
+                c.affected_product_id,
+                c.related_branch_id,
+                c.origin_interaction_id,
                 c.resolution,
                 c.priority,
-                c.affected_product_id,
+                c.assigned_agent_id,
+                c.assignment_date,
+                c.first_response_date,
+                c.resolution_date,
+                c.closing_date,
+                c.sla_breached,
+                c.resolution_days,
+                c.compensation_granted,
+                c.resolution_satisfaction,
+                c.is_repeat_complainer,
                 tx.transaction_id,
                 CASE
                     WHEN tx.candidate_count = 1 THEN 'UNAMBIGUOUS_DERIVED_MATCH'::text
@@ -206,18 +245,27 @@ def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
                 END AS transaction_link_type,
                 NULL::numeric AS escalation_probability,
                 NULL::boolean AS requires_human_review,
+                NULL::timestamp AS updated_at,
                 linked.transaction_date,
+                linked.process_date AS transaction_process_date,
                 linked.product_id AS transaction_product_id,
                 linked.transaction_type,
                 linked.transaction_category,
                 linked.amount AS transaction_amount,
                 linked.currency AS transaction_currency,
+                linked.amount_usd AS transaction_amount_usd,
                 linked.channel AS transaction_channel,
+                linked.branch_id AS transaction_branch_id,
                 linked.merchant_name,
                 linked.merchant_category,
                 linked.transaction_country,
                 linked.transaction_city,
-                linked.transaction_status
+                linked.transaction_status,
+                linked.response_code AS transaction_response_code,
+                linked.is_fraud AS transaction_is_fraud,
+                linked.fraud_score AS transaction_fraud_score,
+                linked.latitude AS transaction_latitude,
+                linked.longitude AS transaction_longitude
             FROM complaints c
             LEFT JOIN LATERAL (
                 SELECT
@@ -248,6 +296,7 @@ def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
                 d.dispute_id::text AS case_id,
                 d.created_at AS case_date,
                 'FACTORED_AI'::text AS source,
+                d.customer_id,
                 'Dispute'::text AS case_type,
                 'Transaction dispute'::text AS category,
                 NULL::text AS subcategory,
@@ -255,25 +304,48 @@ def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
                 d.claimed_amount,
                 d.currency,
                 d.reason AS summary,
+                NULL::date AS process_date,
+                NULL::text AS reception_channel,
+                d.product_id AS affected_product_id,
+                NULL::text AS related_branch_id,
+                NULL::text AS origin_interaction_id,
                 NULL::text AS resolution,
                 NULL::text AS priority,
-                d.product_id AS affected_product_id,
+                NULL::text AS assigned_agent_id,
+                NULL::timestamp AS assignment_date,
+                NULL::timestamp AS first_response_date,
+                NULL::timestamp AS resolution_date,
+                NULL::timestamp AS closing_date,
+                NULL::boolean AS sla_breached,
+                NULL::integer AS resolution_days,
+                NULL::numeric AS compensation_granted,
+                NULL::integer AS resolution_satisfaction,
+                NULL::boolean AS is_repeat_complainer,
                 d.transaction_id,
                 'EXACT_DISPUTE_LINK'::text AS transaction_link_type,
                 d.escalation_probability,
                 d.requires_human_review,
+                d.updated_at,
                 t.transaction_date,
+                t.process_date AS transaction_process_date,
                 t.product_id AS transaction_product_id,
                 t.transaction_type,
                 t.transaction_category,
                 t.amount AS transaction_amount,
                 t.currency AS transaction_currency,
+                t.amount_usd AS transaction_amount_usd,
                 t.channel AS transaction_channel,
+                t.branch_id AS transaction_branch_id,
                 t.merchant_name,
                 t.merchant_category,
                 t.transaction_country,
                 t.transaction_city,
-                t.transaction_status
+                t.transaction_status,
+                t.response_code AS transaction_response_code,
+                t.is_fraud AS transaction_is_fraud,
+                t.fraud_score AS transaction_fraud_score,
+                t.latitude AS transaction_latitude,
+                t.longitude AS transaction_longitude
             FROM dispute_cases d
             JOIN transactions t
               ON t.transaction_id = d.transaction_id
@@ -302,8 +374,9 @@ def get_customer_case_history(customer_id, limit=20, cutoff_date=None):
 
     return [dict(row) for row in rows]
 
+
 def get_customer_case(customer_id, case_id, cutoff_date=None):
-    """Read one owned, currently eligible case and expose a transaction only when linkage is unambiguous."""
+    """Reads one owned eligible case with complete case and linked transaction information."""
 
     normalized_case_id = str(case_id or "").strip()
     if not normalized_case_id:
@@ -327,6 +400,7 @@ def get_customer_case(customer_id, case_id, cutoff_date=None):
                 c.complaint_id::text AS case_id,
                 c.creation_date AS case_date,
                 'BANK_HISTORY'::text AS source,
+                c.customer_id,
                 c.case_type,
                 c.category,
                 c.subcategory,
@@ -334,14 +408,51 @@ def get_customer_case(customer_id, case_id, cutoff_date=None):
                 c.claimed_amount,
                 c.currency,
                 c.description AS summary,
+                c.process_date,
+                c.reception_channel,
+                c.affected_product_id,
+                c.related_branch_id,
+                c.origin_interaction_id,
                 c.resolution,
                 c.priority,
-                c.affected_product_id,
+                c.assigned_agent_id,
+                c.assignment_date,
+                c.first_response_date,
+                c.resolution_date,
+                c.closing_date,
+                c.sla_breached,
+                c.resolution_days,
+                c.compensation_granted,
+                c.resolution_satisfaction,
+                c.is_repeat_complainer,
                 tx.transaction_id,
                 CASE
-                    WHEN tx.candidate_count = 1 THEN 'UNAMBIGUOUS_DERIVED_MATCH'
-                    ELSE NULL
-                END AS transaction_link_type
+                    WHEN tx.candidate_count = 1 THEN 'UNAMBIGUOUS_DERIVED_MATCH'::text
+                    ELSE NULL::text
+                END AS transaction_link_type,
+                NULL::numeric AS escalation_probability,
+                NULL::boolean AS requires_human_review,
+                NULL::timestamp AS updated_at,
+                linked.transaction_date,
+                linked.process_date AS transaction_process_date,
+                linked.product_id AS transaction_product_id,
+                linked.transaction_type,
+                linked.transaction_category,
+                linked.amount AS transaction_amount,
+                linked.currency AS transaction_currency,
+                linked.amount_usd AS transaction_amount_usd,
+                linked.channel AS transaction_channel,
+                linked.branch_id AS transaction_branch_id,
+                linked.merchant_name,
+                linked.merchant_category,
+                linked.transaction_country,
+                linked.transaction_city,
+                linked.transaction_status,
+                linked.response_code AS transaction_response_code,
+                linked.is_fraud AS transaction_is_fraud,
+                linked.fraud_score AS transaction_fraud_score,
+                linked.latitude AS transaction_latitude,
+                linked.longitude AS transaction_longitude
             FROM owned_complaint c
             LEFT JOIN LATERAL (
                 SELECT
@@ -357,6 +468,9 @@ def get_customer_case(customer_id, case_id, cutoff_date=None):
                   AND t.currency = c.currency
                   AND t.transaction_date <= c.creation_date
             ) tx ON TRUE
+            LEFT JOIN transactions linked
+              ON linked.customer_id = c.customer_id
+             AND linked.transaction_id = tx.transaction_id
             """
         )
         params = {
@@ -376,6 +490,7 @@ def get_customer_case(customer_id, case_id, cutoff_date=None):
                 d.dispute_id::text AS case_id,
                 d.created_at AS case_date,
                 'FACTORED_AI'::text AS source,
+                d.customer_id,
                 'Dispute'::text AS case_type,
                 'Transaction dispute'::text AS category,
                 NULL::text AS subcategory,
@@ -383,11 +498,48 @@ def get_customer_case(customer_id, case_id, cutoff_date=None):
                 d.claimed_amount,
                 d.currency,
                 d.reason AS summary,
+                NULL::date AS process_date,
+                NULL::text AS reception_channel,
+                d.product_id AS affected_product_id,
+                NULL::text AS related_branch_id,
+                NULL::text AS origin_interaction_id,
                 NULL::text AS resolution,
                 NULL::text AS priority,
-                d.product_id AS affected_product_id,
+                NULL::text AS assigned_agent_id,
+                NULL::timestamp AS assignment_date,
+                NULL::timestamp AS first_response_date,
+                NULL::timestamp AS resolution_date,
+                NULL::timestamp AS closing_date,
+                NULL::boolean AS sla_breached,
+                NULL::integer AS resolution_days,
+                NULL::numeric AS compensation_granted,
+                NULL::integer AS resolution_satisfaction,
+                NULL::boolean AS is_repeat_complainer,
                 d.transaction_id,
-                'EXACT_DISPUTE_LINK'::text AS transaction_link_type
+                'EXACT_DISPUTE_LINK'::text AS transaction_link_type,
+                d.escalation_probability,
+                d.requires_human_review,
+                d.updated_at,
+                t.transaction_date,
+                t.process_date AS transaction_process_date,
+                t.product_id AS transaction_product_id,
+                t.transaction_type,
+                t.transaction_category,
+                t.amount AS transaction_amount,
+                t.currency AS transaction_currency,
+                t.amount_usd AS transaction_amount_usd,
+                t.channel AS transaction_channel,
+                t.branch_id AS transaction_branch_id,
+                t.merchant_name,
+                t.merchant_category,
+                t.transaction_country,
+                t.transaction_city,
+                t.transaction_status,
+                t.response_code AS transaction_response_code,
+                t.is_fraud AS transaction_is_fraud,
+                t.fraud_score AS transaction_fraud_score,
+                t.latitude AS transaction_latitude,
+                t.longitude AS transaction_longitude
             FROM dispute_cases d
             JOIN transactions t
               ON t.transaction_id = d.transaction_id
@@ -412,6 +564,7 @@ def get_customer_case(customer_id, case_id, cutoff_date=None):
         row = connection.execute(query, params).mappings().first()
 
     return dict(row) if row else None
+
 
 def get_customer_transaction(customer_id, transaction_id):
     """Read one transaction only when it belongs to the authenticated customer."""

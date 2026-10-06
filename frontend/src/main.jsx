@@ -165,6 +165,41 @@ const copy = {
     linkType: 'Transaction link',
     escalationProbability: 'Escalation probability',
     humanReview: 'Human review required',
+    customerIdLabel: 'Customer ID',
+    processDate: 'Process date',
+    receptionChannel: 'Reception channel',
+    relatedBranch: 'Related branch',
+    originInteraction: 'Origin interaction',
+    assignedAgent: 'Assigned agent',
+    assignmentDate: 'Assignment date',
+    firstResponseDate: 'First response date',
+    resolutionDate: 'Resolution date',
+    closingDate: 'Closing date',
+    slaBreached: 'SLA breached',
+    resolutionDays: 'Resolution days',
+    compensationGranted: 'Compensation granted',
+    resolutionSatisfaction: 'Resolution satisfaction',
+    repeatComplainer: 'Repeat complainer',
+    updatedAt: 'Updated at',
+    transactionDate: 'Transaction date',
+    transactionProcessDate: 'Transaction process date',
+    transactionType: 'Transaction type',
+    transactionCategory: 'Transaction category',
+    transactionAmount: 'Transaction amount',
+    transactionCurrency: 'Transaction currency',
+    amountUsd: 'Amount USD',
+    transactionChannel: 'Transaction channel',
+    branchId: 'Branch ID',
+    merchantCategory: 'Merchant category',
+    transactionCountry: 'Transaction country',
+    transactionCity: 'Transaction city',
+    transactionStatus: 'Transaction status',
+    responseCode: 'Response code',
+    isFraud: 'Fraud flag',
+    fraudScore: 'Fraud score',
+    latitude: 'Latitude',
+    longitude: 'Longitude',
+    notAvailable: 'Not available',
   },
   es: {
     title: 'Hermes',
@@ -235,6 +270,41 @@ const copy = {
     linkType: 'Vínculo de transacción',
     escalationProbability: 'Probabilidad de escalamiento',
     humanReview: 'Revisión humana requerida',
+    customerIdLabel: 'ID de cliente',
+    processDate: 'Fecha de proceso',
+    receptionChannel: 'Canal de recepción',
+    relatedBranch: 'Sucursal relacionada',
+    originInteraction: 'Interacción de origen',
+    assignedAgent: 'Agente asignado',
+    assignmentDate: 'Fecha de asignación',
+    firstResponseDate: 'Fecha de primera respuesta',
+    resolutionDate: 'Fecha de resolución',
+    closingDate: 'Fecha de cierre',
+    slaBreached: 'SLA incumplido',
+    resolutionDays: 'Días de resolución',
+    compensationGranted: 'Compensación otorgada',
+    resolutionSatisfaction: 'Satisfacción con resolución',
+    repeatComplainer: 'Reclamante recurrente',
+    updatedAt: 'Actualizado',
+    transactionDate: 'Fecha de transacción',
+    transactionProcessDate: 'Fecha de proceso de transacción',
+    transactionType: 'Tipo de transacción',
+    transactionCategory: 'Categoría de transacción',
+    transactionAmount: 'Monto de transacción',
+    transactionCurrency: 'Moneda de transacción',
+    amountUsd: 'Monto USD',
+    transactionChannel: 'Canal de transacción',
+    branchId: 'ID de sucursal',
+    merchantCategory: 'Categoría del comercio',
+    transactionCountry: 'País de transacción',
+    transactionCity: 'Ciudad de transacción',
+    transactionStatus: 'Estado de transacción',
+    responseCode: 'Código de respuesta',
+    isFraud: 'Indicador de fraude',
+    fraudScore: 'Puntuación de fraude',
+    latitude: 'Latitud',
+    longitude: 'Longitud',
+    notAvailable: 'No disponible',
   },
   pt: {
     title: 'Hermes',
@@ -305,6 +375,41 @@ const copy = {
     linkType: 'Vínculo da transação',
     escalationProbability: 'Probabilidade de escalonamento',
     humanReview: 'Revisão humana necessária',
+    customerIdLabel: 'ID do cliente',
+    processDate: 'Data de processamento',
+    receptionChannel: 'Canal de recepção',
+    relatedBranch: 'Agência relacionada',
+    originInteraction: 'Interação de origem',
+    assignedAgent: 'Agente atribuído',
+    assignmentDate: 'Data de atribuição',
+    firstResponseDate: 'Data da primeira resposta',
+    resolutionDate: 'Data de resolução',
+    closingDate: 'Data de encerramento',
+    slaBreached: 'SLA violado',
+    resolutionDays: 'Dias de resolução',
+    compensationGranted: 'Compensação concedida',
+    resolutionSatisfaction: 'Satisfação com a resolução',
+    repeatComplainer: 'Reclamante recorrente',
+    updatedAt: 'Atualizado em',
+    transactionDate: 'Data da transação',
+    transactionProcessDate: 'Data de processamento da transação',
+    transactionType: 'Tipo de transação',
+    transactionCategory: 'Categoria da transação',
+    transactionAmount: 'Valor da transação',
+    transactionCurrency: 'Moeda da transação',
+    amountUsd: 'Valor USD',
+    transactionChannel: 'Canal da transação',
+    branchId: 'ID da agência',
+    merchantCategory: 'Categoria do estabelecimento',
+    transactionCountry: 'País da transação',
+    transactionCity: 'Cidade da transação',
+    transactionStatus: 'Status da transação',
+    responseCode: 'Código de resposta',
+    isFraud: 'Indicador de fraude',
+    fraudScore: 'Pontuação de fraude',
+    latitude: 'Latitude',
+    longitude: 'Longitude',
+    notAvailable: 'Não disponível',
   },
 }
 
@@ -540,122 +645,121 @@ function TransactionDetails({ t, authenticated, transaction, onLogin }) {
   )
 }
 
-function linkedTransactionFromCase(item) {
-  if (!item?.transaction_id) return null
-
-  return {
-    transaction_id: item.transaction_id,
-    transaction_date: item.transaction_date,
-    product_id: item.transaction_product_id || item.affected_product_id,
-    transaction_type: item.transaction_type,
-    transaction_category: item.transaction_category,
-    amount: item.transaction_amount,
-    currency: item.transaction_currency,
-    channel: item.transaction_channel,
-    merchant_name: item.merchant_name,
-    merchant_category: item.merchant_category,
-    transaction_country: item.transaction_country,
-    transaction_city: item.transaction_city,
-    transaction_status: item.transaction_status,
-  }
+function valueOrUnavailable(value, t) {
+  if (value === null || value === undefined || value === '') return t.notAvailable
+  return String(value)
 }
 
-function CaseDetailContent({ t, item, linkedTransaction }) {
-  const rawDate = item?.case_date ? new Date(item.case_date) : null
-  const dateText = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toLocaleDateString() : ''
-  const amount = item?.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
-  const linked = formatTransaction(linkedTransaction)
+function formatCaseDate(value, t) {
+  if (!value) return t.notAvailable
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return String(value)
+  return parsed.toLocaleString()
+}
+
+function formatCaseBoolean(value, t) {
+  if (value === null || value === undefined) return t.notAvailable
+  return value ? t.yes : t.no
+}
+
+function CaseField({ label, value, t }) {
+  return (
+    <div className="history-meta">
+      <span>{label}</span>
+      <b>{valueOrUnavailable(value, t)}</b>
+    </div>
+  )
+}
+
+function CaseDetailContent({ t, item }) {
   const probabilityValue = item?.escalation_probability == null ? null : Number(item.escalation_probability)
   const probabilityText = probabilityValue !== null && Number.isFinite(probabilityValue)
     ? `${(probabilityValue * 100).toFixed(1)}%`
-    : null
+    : t.notAvailable
+
+  const claimedAmount = item?.claimed_amount == null
+    ? t.notAvailable
+    : `${item.currency || ''} ${item.claimed_amount}`.trim()
+
+  const transactionAmount = item?.transaction_amount == null
+    ? t.notAvailable
+    : `${item.transaction_currency || ''} ${item.transaction_amount}`.trim()
 
   return (
     <>
       <div className="history-item-head">
-        <strong>{item?.category || item?.case_type || '-'}</strong>
-        <span>{item?.status || '-'}</span>
+        <strong>{item?.category || item?.case_type || t.notAvailable}</strong>
+        <span>{item?.status || t.notAvailable}</span>
       </div>
-      {dateText && <small>{dateText}</small>}
-      <div className="history-meta"><span>{t.caseId}</span><b>{item?.case_id || '-'}</b></div>
-      {item?.source && <div className="history-meta"><span>{t.source}</span><b>{item.source}</b></div>}
-      {item?.case_type && <div className="history-meta"><span>{t.caseType}</span><b>{item.case_type}</b></div>}
-      {item?.subcategory && <div className="history-meta"><span>{t.subcategory}</span><b>{item.subcategory}</b></div>}
-      {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
-      {item?.summary && <div className="history-meta"><span>{t.summary}</span><b>{item.summary}</b></div>}
-      {item?.resolution && <div className="history-meta"><span>{t.resolution}</span><b>{item.resolution}</b></div>}
-      {item?.priority && <div className="history-meta"><span>{t.priority}</span><b>{item.priority}</b></div>}
-      {item?.affected_product_id && <div className="history-meta"><span>{t.affectedProduct}</span><b>{item.affected_product_id}</b></div>}
-      {item?.transaction_id && <div className="history-meta"><span>{t.transactionId}</span><b>{item.transaction_id}</b></div>}
-      {item?.transaction_link_type && <div className="history-meta"><span>{t.linkType}</span><b>{item.transaction_link_type}</b></div>}
-      {probabilityText && <div className="history-meta"><span>{t.escalationProbability}</span><b>{probabilityText}</b></div>}
-      {item?.requires_human_review !== null && item?.requires_human_review !== undefined && (
-        <div className="history-meta"><span>{t.humanReview}</span><b>{item.requires_human_review ? t.yes : t.no}</b></div>
-      )}
-      {linked && (
-        <div className="linked-transaction-block">
-          <h3>{t.linkedTransaction}</h3>
-          <TransactionCard transaction={linked} />
-        </div>
-      )}
+
+      <CaseField label={t.caseId} value={item?.case_id} t={t} />
+      <CaseField label={t.date} value={formatCaseDate(item?.case_date, t)} t={t} />
+      <CaseField label={t.source} value={item?.source} t={t} />
+      <CaseField label={t.customerIdLabel} value={item?.customer_id} t={t} />
+      <CaseField label={t.caseType} value={item?.case_type} t={t} />
+      <CaseField label={t.subcategory} value={item?.subcategory} t={t} />
+      <CaseField label={t.amount} value={claimedAmount} t={t} />
+      <CaseField label={t.summary} value={item?.summary} t={t} />
+      <CaseField label={t.processDate} value={formatCaseDate(item?.process_date, t)} t={t} />
+      <CaseField label={t.receptionChannel} value={item?.reception_channel} t={t} />
+      <CaseField label={t.affectedProduct} value={item?.affected_product_id} t={t} />
+      <CaseField label={t.relatedBranch} value={item?.related_branch_id} t={t} />
+      <CaseField label={t.originInteraction} value={item?.origin_interaction_id} t={t} />
+      <CaseField label={t.resolution} value={item?.resolution} t={t} />
+      <CaseField label={t.priority} value={item?.priority} t={t} />
+      <CaseField label={t.assignedAgent} value={item?.assigned_agent_id} t={t} />
+      <CaseField label={t.assignmentDate} value={formatCaseDate(item?.assignment_date, t)} t={t} />
+      <CaseField label={t.firstResponseDate} value={formatCaseDate(item?.first_response_date, t)} t={t} />
+      <CaseField label={t.resolutionDate} value={formatCaseDate(item?.resolution_date, t)} t={t} />
+      <CaseField label={t.closingDate} value={formatCaseDate(item?.closing_date, t)} t={t} />
+      <CaseField label={t.slaBreached} value={formatCaseBoolean(item?.sla_breached, t)} t={t} />
+      <CaseField label={t.resolutionDays} value={item?.resolution_days} t={t} />
+      <CaseField label={t.compensationGranted} value={item?.compensation_granted} t={t} />
+      <CaseField label={t.resolutionSatisfaction} value={item?.resolution_satisfaction} t={t} />
+      <CaseField label={t.repeatComplainer} value={formatCaseBoolean(item?.is_repeat_complainer, t)} t={t} />
+      <CaseField label={t.updatedAt} value={formatCaseDate(item?.updated_at, t)} t={t} />
+      <CaseField label={t.transactionId} value={item?.transaction_id} t={t} />
+      <CaseField label={t.linkType} value={item?.transaction_link_type} t={t} />
+      <CaseField label={t.escalationProbability} value={probabilityText} t={t} />
+      <CaseField label={t.humanReview} value={formatCaseBoolean(item?.requires_human_review, t)} t={t} />
+
+      <div className="linked-transaction-block">
+        <h3>{t.linkedTransaction}</h3>
+        <CaseField label={t.transactionDate} value={formatCaseDate(item?.transaction_date, t)} t={t} />
+        <CaseField label={t.transactionProcessDate} value={formatCaseDate(item?.transaction_process_date, t)} t={t} />
+        <CaseField label={t.card} value={item?.transaction_product_id} t={t} />
+        <CaseField label={t.transactionType} value={item?.transaction_type} t={t} />
+        <CaseField label={t.transactionCategory} value={item?.transaction_category} t={t} />
+        <CaseField label={t.transactionAmount} value={transactionAmount} t={t} />
+        <CaseField label={t.amountUsd} value={item?.transaction_amount_usd} t={t} />
+        <CaseField label={t.transactionChannel} value={item?.transaction_channel} t={t} />
+        <CaseField label={t.branchId} value={item?.transaction_branch_id} t={t} />
+        <CaseField label={t.merchant} value={item?.merchant_name} t={t} />
+        <CaseField label={t.merchantCategory} value={item?.merchant_category} t={t} />
+        <CaseField label={t.transactionCountry} value={item?.transaction_country} t={t} />
+        <CaseField label={t.transactionCity} value={item?.transaction_city} t={t} />
+        <CaseField label={t.transactionStatus} value={item?.transaction_status} t={t} />
+        <CaseField label={t.responseCode} value={item?.transaction_response_code} t={t} />
+        <CaseField label={t.isFraud} value={formatCaseBoolean(item?.transaction_is_fraud, t)} t={t} />
+        <CaseField label={t.fraudScore} value={item?.transaction_fraud_score} t={t} />
+        <CaseField label={t.latitude} value={item?.transaction_latitude} t={t} />
+        <CaseField label={t.longitude} value={item?.transaction_longitude} t={t} />
+      </div>
     </>
   )
 }
 
 function CaseHistoryPanel({ t, items }) {
-  const [selectedCaseId, setSelectedCaseId] = useState(null)
-
-  function toggleCase(caseId) {
-    setSelectedCaseId((current) => current === caseId ? null : caseId)
-  }
-
   return (
     <aside className="details-panel history-panel">
       <h2>{t.caseHistoryTitle}</h2>
       {!items.length && <p className="history-empty">{t.noHistory}</p>}
       <div className="history-list">
-        {items.map((item) => {
-          const rawDate = item.case_date ? new Date(item.case_date) : null
-          const dateText = rawDate && !Number.isNaN(rawDate.getTime()) ? rawDate.toLocaleDateString() : ''
-          const amount = item.claimed_amount == null ? '' : `${item.currency || ''} ${item.claimed_amount}`.trim()
-          const selected = selectedCaseId === item.case_id
-
-          return (
-            <div
-              className="history-item"
-              key={item.case_id}
-              role="button"
-              tabIndex={0}
-              aria-expanded={selected}
-              onClick={() => toggleCase(item.case_id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  toggleCase(item.case_id)
-                }
-              }}
-              style={{ cursor: 'pointer' }}
-            >
-              {selected ? (
-                <CaseDetailContent
-                  t={t}
-                  item={item}
-                  linkedTransaction={linkedTransactionFromCase(item)}
-                />
-              ) : (
-                <>
-                  <div className="history-item-head">
-                    <strong>{item.category || item.case_type || '-'}</strong>
-                    <span>{item.status || '-'}</span>
-                  </div>
-                  <small>{dateText}</small>
-                  <div className="history-meta"><span>{t.caseId}</span><b>{item.case_id}</b></div>
-                  {amount && <div className="history-meta"><span>{t.amount}</span><b>{amount}</b></div>}
-                </>
-              )}
-            </div>
-          )
-        })}
+        {items.map((item) => (
+          <div className="history-item" key={item.case_id}>
+            <CaseDetailContent t={t} item={item} />
+          </div>
+        ))}
       </div>
     </aside>
   )
@@ -667,7 +771,7 @@ function CaseDetailPanel({ t, item, linkedTransaction }) {
       <h2>{t.caseDetailsTitle}</h2>
       <div className="history-list">
         <div className="history-item">
-          <CaseDetailContent t={t} item={item} linkedTransaction={linkedTransaction} />
+          <CaseDetailContent t={t} item={item} />
         </div>
       </div>
     </aside>

@@ -138,12 +138,21 @@ const copy = {
     select: 'Select',
     openDispute: 'Open dispute',
     selectedTransactionLead: "You've selected",
-    confirmSelectedTransaction: "Would you like to start a dispute, or report that you don't recognize this charge?",
+    confirmSelectedTransaction: 'Would you like to start a dispute for this transaction?',
     disputeSelected: 'Start a dispute',
-    unrecognizedCharge: "I don't recognize this charge",
     chooseAnother: 'Choose another',
-    genericDisputeReason: 'Customer wants to dispute the selected transaction.',
+    disputeReasonQuestion: 'What is the reason for the dispute?',
+    unrecognizedCharge: "I don't recognize this charge",
+    wrongAmount: 'Wrong amount',
+    chargedTwice: 'Charged twice',
+    atmCashIssue: 'ATM / cash issue',
+    otherReason: 'Other',
     unrecognizedDisputeReason: 'Customer does not recognize the selected charge.',
+    wrongAmountDisputeReason: 'Customer reports that the transaction amount is incorrect.',
+    chargedTwiceDisputeReason: 'Customer reports a duplicate charge.',
+    atmCashDisputeReason: 'Customer reports an ATM or cash withdrawal issue.',
+    otherDisputeReason: 'Customer reports another issue with the selected transaction.',
+    escalationContinueMessage: 'You can continue chatting while your case is under human review.',
     customerContextLabel: 'Customer',
     chooseAnotherTransaction: 'Select another transaction from the list.',
     placeholder: 'Ask about a transaction dispute...',
@@ -256,12 +265,21 @@ const copy = {
     select: 'Seleccionar',
     openDispute: 'Abrir disputa',
     selectedTransactionLead: 'Seleccionaste',
-    confirmSelectedTransaction: '¿Quieres iniciar una disputa o reportar que no reconoces este cargo?',
+    confirmSelectedTransaction: '¿Quieres iniciar una disputa por esta transacción?',
     disputeSelected: 'Iniciar disputa',
-    unrecognizedCharge: 'No reconozco este cargo',
     chooseAnother: 'Elegir otra',
-    genericDisputeReason: 'El cliente quiere disputar la transacción seleccionada.',
+    disputeReasonQuestion: '¿Cuál es el motivo de la disputa?',
+    unrecognizedCharge: 'No reconozco este cargo',
+    wrongAmount: 'Monto incorrecto',
+    chargedTwice: 'Cobro duplicado',
+    atmCashIssue: 'Problema de ATM / efectivo',
+    otherReason: 'Otro',
     unrecognizedDisputeReason: 'El cliente no reconoce el cargo seleccionado.',
+    wrongAmountDisputeReason: 'El cliente reporta que el monto de la transacción es incorrecto.',
+    chargedTwiceDisputeReason: 'El cliente reporta un cobro duplicado.',
+    atmCashDisputeReason: 'El cliente reporta un problema con ATM o retiro de efectivo.',
+    otherDisputeReason: 'El cliente reporta otro problema con la transacción seleccionada.',
+    escalationContinueMessage: 'Puedes seguir escribiendo mientras tu caso está bajo revisión humana.',
     customerContextLabel: 'Cliente',
     chooseAnotherTransaction: 'Selecciona otra transacción de la lista.',
     placeholder: 'Pregunta sobre una disputa de transacción...',
@@ -374,12 +392,21 @@ const copy = {
     select: 'Selecionar',
     openDispute: 'Abrir contestação',
     selectedTransactionLead: 'Você selecionou',
-    confirmSelectedTransaction: 'Deseja iniciar uma contestação ou informar que não reconhece esta cobrança?',
+    confirmSelectedTransaction: 'Deseja iniciar uma contestação para esta transação?',
     disputeSelected: 'Iniciar contestação',
-    unrecognizedCharge: 'Não reconheço esta cobrança',
     chooseAnother: 'Escolher outra',
-    genericDisputeReason: 'O cliente deseja contestar a transação selecionada.',
+    disputeReasonQuestion: 'Qual é o motivo da contestação?',
+    unrecognizedCharge: 'Não reconheço esta cobrança',
+    wrongAmount: 'Valor incorreto',
+    chargedTwice: 'Cobrança duplicada',
+    atmCashIssue: 'Problema de ATM / dinheiro',
+    otherReason: 'Outro',
     unrecognizedDisputeReason: 'O cliente não reconhece a cobrança selecionada.',
+    wrongAmountDisputeReason: 'O cliente informa que o valor da transação está incorreto.',
+    chargedTwiceDisputeReason: 'O cliente informa uma cobrança duplicada.',
+    atmCashDisputeReason: 'O cliente informa um problema com ATM ou saque em dinheiro.',
+    otherDisputeReason: 'O cliente informa outro problema com a transação selecionada.',
+    escalationContinueMessage: 'Você pode continuar escrevendo enquanto o caso está em análise humana.',
     customerContextLabel: 'Cliente',
     chooseAnotherTransaction: 'Selecione outra transação da lista.',
     placeholder: 'Pergunte sobre uma contestação de transação...',
@@ -830,6 +857,26 @@ function CaseDetailContent({ t, item }) {
   )
 }
 
+function CaseHistoryAccordionItem({ t, item }) {
+  return (
+    <details className="history-item history-accordion">
+      <summary className="history-accordion-summary">
+        <div className="history-accordion-title">
+          <strong>{item?.category || item?.case_type || t.notAvailable}</strong>
+          <small>{formatCaseDate(item?.case_date, t)}</small>
+        </div>
+        <div className="history-accordion-status">
+          <span>{item?.status || t.notAvailable}</span>
+          <ChevronDown className="history-accordion-chevron" size={18} />
+        </div>
+      </summary>
+      <div className="history-accordion-body">
+        <CaseDetailContent t={t} item={item} />
+      </div>
+    </details>
+  )
+}
+
 function CaseHistoryPanel({ t, items }) {
   return (
     <aside className="details-panel history-panel">
@@ -837,9 +884,7 @@ function CaseHistoryPanel({ t, items }) {
       {!items.length && <p className="history-empty">{t.noHistory}</p>}
       <div className="history-list">
         {items.map((item) => (
-          <div className="history-item" key={item.case_id}>
-            <CaseDetailContent t={t} item={item} />
-          </div>
+          <CaseHistoryAccordionItem t={t} item={item} key={item.case_id} />
         ))}
       </div>
     </aside>
@@ -859,6 +904,44 @@ function CaseDetailPanel({ t, item, linkedTransaction }) {
   )
 }
 
+function TransactionHistoryAccordionItem({ t, item, selected, radioName, onSelect }) {
+  return (
+    <details className={`history-item history-accordion transaction-history-choice ${selected ? 'selected' : ''}`}>
+      <summary className="history-accordion-summary transaction-accordion-summary">
+        <span
+          className="transaction-radio-wrap"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <input
+            className="transaction-radio"
+            type="radio"
+            name={radioName}
+            checked={selected}
+            onChange={() => onSelect?.(item)}
+            aria-label={`${t.select}: ${item.merchant || item.transaction_id || ''}`}
+          />
+        </span>
+        <div className="history-accordion-title transaction-accordion-title">
+          <strong>{item.merchant || '-'}</strong>
+          <small>{[item.date, item.time].filter(Boolean).join(' ')}</small>
+        </div>
+        <div className="history-accordion-status transaction-accordion-amount">
+          <span>{item.amount || '-'}</span>
+          <ChevronDown className="history-accordion-chevron" size={18} />
+        </div>
+      </summary>
+      <div className="history-accordion-body transaction-accordion-body">
+        {item.category && <div className="history-meta"><span>{t.transactionCategory}</span><b>{item.category}</b></div>}
+        {item.location && <div className="history-meta"><span>{t.location}</span><b>{item.location}</b></div>}
+        {item.channel && <div className="history-meta"><span>{t.transactionChannel}</span><b>{item.channel}</b></div>}
+        {item.card && <div className="history-meta"><span>{t.card}</span><b>{item.card}</b></div>}
+        {item.transaction_id && <div className="history-meta"><span>{t.transactionId}</span><b>{item.transaction_id}</b></div>}
+      </div>
+    </details>
+  )
+}
+
 function TransactionHistoryPanel({ t, items, selectable = false, selectedTransactionId = null, onSelect = null }) {
   return (
     <aside className="details-panel history-panel">
@@ -866,40 +949,16 @@ function TransactionHistoryPanel({ t, items, selectable = false, selectedTransac
       <p className="transaction-selection-help">{t.transactionSelectionHelp}</p>
       {!items.length && <p className="history-empty">{t.noHistory}</p>}
       <div className="history-list">
-        {items.map((item) => {
-          const selected = selectedTransactionId === item.transaction_id
-          const content = (
-            <>
-              <div className="history-item-head">
-                <strong>{item.merchant || '-'}</strong>
-                <span>{item.amount || '-'}</span>
-              </div>
-              <small>{[item.date, item.time].filter(Boolean).join(' ')}</small>
-              {item.category && <div className="history-meta"><span>{item.category}</span></div>}
-              {item.location && <div className="history-meta"><span>{item.location}</span></div>}
-            </>
-          )
-
-          if (!selectable) {
-            return <div className="history-item" key={item.transaction_id}>{content}</div>
-          }
-
-          return (
-            <label
-              className={`history-item transaction-history-choice ${selected ? 'selected' : ''}`}
-              key={item.transaction_id}
-            >
-              <input
-                className="transaction-radio"
-                type="radio"
-                name="dispute-transaction"
-                checked={selected}
-                onChange={() => onSelect?.(item)}
-              />
-              <div className="transaction-history-choice-body">{content}</div>
-            </label>
-          )
-        })}
+        {items.map((item) => (
+          <TransactionHistoryAccordionItem
+            t={t}
+            item={item}
+            key={item.transaction_id}
+            selected={selectedTransactionId === item.transaction_id}
+            radioName="dispute-transaction"
+            onSelect={onSelect}
+          />
+        ))}
       </div>
     </aside>
   )
@@ -912,32 +971,16 @@ function AccountHistoryPanel({ t, transactions, cases, selectedTransactionId = n
       <p className="transaction-selection-help">{t.transactionSelectionHelp}</p>
       {!transactions.length && <p className="history-empty">{t.noHistory}</p>}
       <div className="history-list">
-        {transactions.map((item) => {
-          const selected = selectedTransactionId === item.transaction_id
-          return (
-            <label
-              className={`history-item transaction-history-choice ${selected ? 'selected' : ''}`}
-              key={item.transaction_id}
-            >
-              <input
-                className="transaction-radio"
-                type="radio"
-                name="account-history-transaction"
-                checked={selected}
-                onChange={() => onSelectTransaction?.(item)}
-              />
-              <div className="transaction-history-choice-body">
-                <div className="history-item-head">
-                  <strong>{item.merchant || '-'}</strong>
-                  <span>{item.amount || '-'}</span>
-                </div>
-                <small>{[item.date, item.time].filter(Boolean).join(' ')}</small>
-                {item.category && <div className="history-meta"><span>{item.category}</span></div>}
-                {item.location && <div className="history-meta"><span>{item.location}</span></div>}
-              </div>
-            </label>
-          )
-        })}
+        {transactions.map((item) => (
+          <TransactionHistoryAccordionItem
+            t={t}
+            item={item}
+            key={item.transaction_id}
+            selected={selectedTransactionId === item.transaction_id}
+            radioName="account-history-transaction"
+            onSelect={onSelectTransaction}
+          />
+        ))}
       </div>
 
       <div className="linked-transaction-block">
@@ -945,9 +988,7 @@ function AccountHistoryPanel({ t, transactions, cases, selectedTransactionId = n
         {!cases.length && <p className="history-empty">{t.noHistory}</p>}
         <div className="history-list">
           {cases.map((item) => (
-            <div className="history-item" key={item.case_id}>
-              <CaseDetailContent t={t} item={item} />
-            </div>
+            <CaseHistoryAccordionItem t={t} item={item} key={item.case_id} />
           ))}
         </div>
       </div>
@@ -1005,20 +1046,25 @@ function HandoffPanel({ t, handoff, dispute }) {
       <div className="handoff-kicker">ESCALATED</div>
       <h2>{t.handoffTitle}</h2>
       {dispute && <div className="history-meta"><span>{t.caseId}</span><b>{dispute.dispute_id}</b></div>}
-      <section className="handoff-section">
-        <h3>{t.verifiedFacts}</h3>
-        {Object.entries(facts).filter(([, value]) => value !== null && value !== undefined && value !== '').map(([key, value]) => (
-          <div className="handoff-row" key={key}><span>{key.replaceAll('_', ' ')}</span><b>{String(value)}</b></div>
-        ))}
-      </section>
-      <section className="handoff-section">
-        <h3>{t.actionsTaken}</h3>
-        <ul>{actions.map((item) => <li key={item}>{item}</li>)}</ul>
-      </section>
-      <section className="handoff-section">
-        <h3>{t.unresolvedQuestions}</h3>
-        <ul>{questions.map((item) => <li key={item}>{item}</li>)}</ul>
-      </section>
+
+      <details className="handoff-section handoff-accordion">
+        <summary><span>{t.verifiedFacts}</span><ChevronDown className="history-accordion-chevron" size={18} /></summary>
+        <div className="handoff-accordion-body">
+          {Object.entries(facts).filter(([, value]) => value !== null && value !== undefined && value !== '').map(([key, value]) => (
+            <div className="handoff-row" key={key}><span>{key.replaceAll('_', ' ')}</span><b>{String(value)}</b></div>
+          ))}
+        </div>
+      </details>
+
+      <details className="handoff-section handoff-accordion">
+        <summary><span>{t.actionsTaken}</span><ChevronDown className="history-accordion-chevron" size={18} /></summary>
+        <div className="handoff-accordion-body"><ul>{actions.map((item) => <li key={item}>{item}</li>)}</ul></div>
+      </details>
+
+      <details className="handoff-section handoff-accordion">
+        <summary><span>{t.unresolvedQuestions}</span><ChevronDown className="history-accordion-chevron" size={18} /></summary>
+        <div className="handoff-accordion-body"><ul>{questions.map((item) => <li key={item}>{item}</li>)}</ul></div>
+      </details>
     </aside>
   )
 }
@@ -1095,6 +1141,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
   const [transactionsError, setTransactionsError] = useState('')
   const [showTransactionSelection, setShowTransactionSelection] = useState(false)
   const [readyToOpenDispute, setReadyToOpenDispute] = useState(false)
+  const [showDisputeReasons, setShowDisputeReasons] = useState(false)
   const [forceHumanReview, setForceHumanReview] = useState(false)
   const composerRef = React.useRef(null)
   const messagesRef = React.useRef(null)
@@ -1203,6 +1250,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     selectionHandledRef.current = ''
     setShowTransactionSelection(false)
     setReadyToOpenDispute(false)
+    setShowDisputeReasons(false)
 
     if (intent === 'transactions') {
       const history = await loadTransactionHistory()
@@ -1235,6 +1283,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     setPendingDisputeReason(reason)
     setAwaitingFeedback(false)
     setReadyToOpenDispute(false)
+    setShowDisputeReasons(false)
     selectionHandledRef.current = ''
     onTransaction(null)
     onRightPanelData(null)
@@ -1371,6 +1420,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
 
     selectionHandledRef.current = transaction.transaction_id
     setShowTransactionSelection(false)
+    setShowDisputeReasons(false)
     setReadyToOpenDispute(true)
   }, [transaction, interactionFinished])
 
@@ -1380,7 +1430,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     if (container) {
       container.scrollTop = container.scrollHeight
     }
-  }, [messages, showTransactionSelection, readyToOpenDispute])
+  }, [messages, showTransactionSelection, readyToOpenDispute, showDisputeReasons])
 
   function resizeComposer() {
     const textarea = composerRef.current
@@ -1428,6 +1478,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         setInteractionFinished(true)
         setShowTransactionSelection(false)
         setReadyToOpenDispute(false)
+        setShowDisputeReasons(false)
         return
       }
 
@@ -1444,17 +1495,18 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     onTransaction(selected)
   }
 
-  async function confirmSelectedTransaction() {
-    const reason = pendingDisputeReason || t.genericDisputeReason
-    setPendingDisputeReason(reason)
+  function confirmSelectedTransaction() {
     addUser(t.disputeSelected)
-    await openDispute(reason)
+    setReadyToOpenDispute(false)
+    setShowDisputeReasons(true)
+    addBot(t.disputeReasonQuestion)
   }
 
-  async function reportUnrecognizedTransaction() {
-    setPendingDisputeReason(t.unrecognizedDisputeReason)
-    addUser(t.unrecognizedCharge)
-    await openDispute(t.unrecognizedDisputeReason)
+  async function chooseDisputeReason(label, reason) {
+    setPendingDisputeReason(reason)
+    setShowDisputeReasons(false)
+    addUser(label)
+    await openDispute(reason)
   }
 
   function chooseAnotherTransaction() {
@@ -1462,6 +1514,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     selectionHandledRef.current = ''
     onTransaction(null)
     setReadyToOpenDispute(false)
+    setShowDisputeReasons(false)
     setShowTransactionSelection(true)
     onRightPanelData({
       type: 'transaction_selection',
@@ -1497,6 +1550,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
       if (result.handoff) {
         onTransaction(null)
         onRightPanelData({ type: 'handoff', handoff: result.handoff, dispute: result.dispute })
+        addBot(t.escalationContinueMessage)
       } else {
         const selectedTransaction = transaction
         onTransaction(null)
@@ -1507,8 +1561,9 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         })
       }
 
-      setInteractionFinished(true)
+      setInteractionFinished(Boolean(result.interaction_finished))
       setReadyToOpenDispute(false)
+      setShowDisputeReasons(false)
       setShowTransactionSelection(false)
     } catch (error) {
       showError(error)
@@ -1556,7 +1611,22 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
               </div>
               <div className="feedback-actions selection-confirmation-actions">
                 <button className="primary" type="button" onClick={confirmSelectedTransaction}>{t.disputeSelected}</button>
-                <button className="primary" type="button" onClick={reportUnrecognizedTransaction}>{t.unrecognizedCharge}</button>
+                <button className="secondary" type="button" onClick={chooseAnotherTransaction}>{t.chooseAnother}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showDisputeReasons && transaction && !interactionFinished && (
+          <div className="message-row bot selection-confirmation-row">
+            <div className="bot-avatar"><img src={hermesIcon} alt="" /></div>
+            <div className="message-stack selection-confirmation-stack">
+              <div className="feedback-actions dispute-reason-actions">
+                <button className="primary" type="button" onClick={() => chooseDisputeReason(t.unrecognizedCharge, t.unrecognizedDisputeReason)}>{t.unrecognizedCharge}</button>
+                <button className="secondary" type="button" onClick={() => chooseDisputeReason(t.wrongAmount, t.wrongAmountDisputeReason)}>{t.wrongAmount}</button>
+                <button className="secondary" type="button" onClick={() => chooseDisputeReason(t.chargedTwice, t.chargedTwiceDisputeReason)}>{t.chargedTwice}</button>
+                <button className="secondary" type="button" onClick={() => chooseDisputeReason(t.atmCashIssue, t.atmCashDisputeReason)}>{t.atmCashIssue}</button>
+                <button className="secondary" type="button" onClick={() => chooseDisputeReason(t.otherReason, t.otherDisputeReason)}>{t.otherReason}</button>
                 <button className="secondary" type="button" onClick={chooseAnotherTransaction}>{t.chooseAnother}</button>
               </div>
             </div>

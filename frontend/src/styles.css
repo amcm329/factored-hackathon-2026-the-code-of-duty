@@ -951,3 +951,168 @@ body { background: #f3f0e8; }
     grid-template-columns: 1fr;
   }
 }
+
+/* Compact expandable transaction and dispute history cards */
+.history-accordion {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.history-accordion > summary {
+  list-style: none;
+}
+
+.history-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.history-accordion-summary {
+  min-height: 64px;
+  padding: 13px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.history-accordion-title {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.history-accordion-title strong {
+  color: #15213d;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.history-accordion-title small {
+  color: #7183a5;
+}
+
+.history-accordion-status {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  color: #53627e;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.history-accordion-chevron {
+  flex: 0 0 auto;
+  transition: transform 160ms ease;
+}
+
+.history-accordion[open] .history-accordion-chevron {
+  transform: rotate(180deg);
+}
+
+.history-accordion-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid #eee8dc;
+}
+
+.history-accordion-body > .history-item-head {
+  display: none;
+}
+
+.transaction-accordion-summary {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+}
+
+.transaction-radio-wrap {
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.transaction-accordion-title {
+  min-width: 0;
+}
+
+.transaction-accordion-amount {
+  color: #15213d;
+  font-size: 14px;
+}
+
+.transaction-accordion-body {
+  display: grid;
+  gap: 9px;
+  padding-top: 12px;
+}
+
+.transaction-history-choice {
+  cursor: default;
+}
+
+.transaction-history-choice > summary {
+  cursor: pointer;
+}
+
+.selection-confirmation-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dispute-reason-actions {
+  width: min(720px, 100%);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .history-accordion-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .transaction-accordion-summary {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .transaction-accordion-amount {
+    grid-column: 2;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .selection-confirmation-actions,
+  .dispute-reason-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.handoff-accordion {
+  padding-top: 0;
+}
+
+.handoff-accordion > summary {
+  list-style: none;
+  padding: 14px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  color: #7b6742;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.handoff-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.handoff-accordion[open] > summary .history-accordion-chevron {
+  transform: rotate(180deg);
+}
+
+.handoff-accordion-body {
+  padding-bottom: 4px;
+}

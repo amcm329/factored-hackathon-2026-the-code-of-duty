@@ -792,7 +792,7 @@ def create_dispute(payload=Body(...), customer_context=Depends(get_current_custo
         "dispute": dispute,
         "response": response,
         "handoff": handoff,
-        "interaction_finished": True,
+        "interaction_finished": dispute["status"] != "ESCALATED",
     }
 
 

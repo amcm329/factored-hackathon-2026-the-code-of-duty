@@ -178,6 +178,7 @@ const copy = {
     openDispute: 'Open dispute',
     selectedTransactionLead: "You've selected",
     confirmSelectedTransaction: 'Would you like to start a dispute for this transaction?',
+    selectedTransactionChatPrompt: "You can also tell me what happened with this transaction in the chat, for example: 'I don't recognize this charge.'",
     disputeSelected: 'Start a dispute',
     chooseAnother: 'Choose another',
     disputeReasonQuestion: 'What is the reason for the dispute?',
@@ -305,6 +306,7 @@ const copy = {
     openDispute: 'Abrir disputa',
     selectedTransactionLead: 'Seleccionaste',
     confirmSelectedTransaction: '¿Quieres iniciar una disputa por esta transacción?',
+    selectedTransactionChatPrompt: "También puedes decirme en el chat qué ocurrió con esta transacción, por ejemplo: 'No reconozco este cargo.'",
     disputeSelected: 'Iniciar disputa',
     chooseAnother: 'Elegir otra',
     disputeReasonQuestion: '¿Cuál es el motivo de la disputa?',
@@ -432,6 +434,7 @@ const copy = {
     openDispute: 'Abrir contestação',
     selectedTransactionLead: 'Você selecionou',
     confirmSelectedTransaction: 'Deseja iniciar uma contestação para esta transação?',
+    selectedTransactionChatPrompt: "Você também pode me dizer no chat o que aconteceu com esta transação, por exemplo: 'Não reconheço esta cobrança.'",
     disputeSelected: 'Iniciar contestação',
     chooseAnother: 'Escolher outra',
     disputeReasonQuestion: 'Qual é o motivo da contestação?',
@@ -1199,6 +1202,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
   const [showTransactionSelection, setShowTransactionSelection] = useState(false)
   const [readyToOpenDispute, setReadyToOpenDispute] = useState(false)
   const [showDisputeReasons, setShowDisputeReasons] = useState(false)
+  const [awaitingSelectedTransactionIssue, setAwaitingSelectedTransactionIssue] = useState(false)
   const [forceHumanReview, setForceHumanReview] = useState(false)
   const composerRef = React.useRef(null)
   const messagesRef = React.useRef(null)
@@ -1308,6 +1312,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     setShowTransactionSelection(false)
     setReadyToOpenDispute(false)
     setShowDisputeReasons(false)
+    setAwaitingSelectedTransactionIssue(false)
 
     if (intent === 'transactions') {
       const history = await loadTransactionHistory()
@@ -1341,6 +1346,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     setAwaitingFeedback(false)
     setReadyToOpenDispute(false)
     setShowDisputeReasons(false)
+    setAwaitingSelectedTransactionIssue(false)
     selectionHandledRef.current = ''
     onTransaction(null)
     onRightPanelData(null)
@@ -1400,6 +1406,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         })
         setShowTransactionSelection(false)
         setReadyToOpenDispute(false)
+        setAwaitingSelectedTransactionIssue(false)
       }
 
       if (Array.isArray(result.case_history)) {
@@ -1410,6 +1417,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         })
         setShowTransactionSelection(false)
         setReadyToOpenDispute(false)
+        setAwaitingSelectedTransactionIssue(false)
       }
 
       if (Array.isArray(result.transaction_history)) {
@@ -1420,6 +1428,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         })
         setShowTransactionSelection(false)
         setReadyToOpenDispute(false)
+        setAwaitingSelectedTransactionIssue(false)
       }
 
       if (result.needs_satisfaction_feedback) {
@@ -1479,6 +1488,10 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     setShowTransactionSelection(false)
     setShowDisputeReasons(false)
     setReadyToOpenDispute(true)
+    setAwaitingSelectedTransactionIssue(true)
+    addBot(
+      `${t.selectedTransactionLead}: ${transaction.merchant} · ${transaction.amount}. ${t.selectedTransactionChatPrompt}`
+    )
   }, [transaction, interactionFinished])
 
   React.useEffect(() => {
@@ -1516,7 +1529,45 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
       return
     }
 
+    if (authenticated && transaction && awaitingSelectedTransactionIssue) {
+      await processSelectedTransactionIssue(value, history)
+      return
+    }
+
     await processChatMessage(value, history)
+  }
+
+  async function processSelectedTransactionIssue(message, history) {
+    try {
+      const result = await send_chat(
+        message,
+        language,
+        history,
+        interactionId,
+      )
+
+      if (result.authentication_required) {
+        setPendingLoginRequest({ message, history })
+        onRequireLogin()
+        return
+      }
+
+      if (result.response) {
+        addBot(result.response)
+      }
+
+      if (looksPersonalDispute(message)) {
+        setPendingDisputeReason(message)
+        setForceHumanReview(true)
+        setAwaitingSelectedTransactionIssue(false)
+        await openDispute(message, true)
+        return
+      }
+
+      setAwaitingSelectedTransactionIssue(true)
+    } catch (error) {
+      showError(error)
+    }
   }
 
   async function handleFeedback(feedback) {
@@ -1536,6 +1587,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         setShowTransactionSelection(false)
         setReadyToOpenDispute(false)
         setShowDisputeReasons(false)
+        setAwaitingSelectedTransactionIssue(false)
         return
       }
 
@@ -1554,12 +1606,14 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
 
   function confirmSelectedTransaction() {
     addUser(t.disputeSelected)
+    setAwaitingSelectedTransactionIssue(false)
     setReadyToOpenDispute(false)
     setShowDisputeReasons(true)
     addBot(t.disputeReasonQuestion)
   }
 
   async function chooseDisputeReason(label, reason) {
+    setAwaitingSelectedTransactionIssue(false)
     setPendingDisputeReason(reason)
     setShowDisputeReasons(false)
     addUser(label)
@@ -1572,6 +1626,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     onTransaction(null)
     setReadyToOpenDispute(false)
     setShowDisputeReasons(false)
+    setAwaitingSelectedTransactionIssue(false)
     setShowTransactionSelection(true)
     onRightPanelData({
       type: 'transaction_selection',
@@ -1580,13 +1635,16 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
     addBot(t.chooseAnotherTransaction)
   }
 
-  async function openDispute(reasonOverride = '') {
+  async function openDispute(reasonOverride = '', forceHumanReviewOverride = null) {
     if (!authenticated) {
       onRequireLogin()
       return
     }
 
     const disputeReason = reasonOverride || pendingDisputeReason
+    const requestedHumanReview = forceHumanReviewOverride === null
+      ? forceHumanReview
+      : Boolean(forceHumanReviewOverride)
     if (!transaction || !disputeReason || interactionFinished) return
 
     try {
@@ -1595,7 +1653,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
         reason: disputeReason,
         language,
         interaction_id: interactionId,
-        force_human_review: forceHumanReview,
+        force_human_review: requestedHumanReview,
       })
 
       if (result.response) {
@@ -1621,6 +1679,7 @@ function Chat({ t, language, authenticated, customerId, transaction, onTransacti
       setInteractionFinished(Boolean(result.interaction_finished))
       setReadyToOpenDispute(false)
       setShowDisputeReasons(false)
+      setAwaitingSelectedTransactionIssue(false)
       setShowTransactionSelection(false)
     } catch (error) {
       showError(error)

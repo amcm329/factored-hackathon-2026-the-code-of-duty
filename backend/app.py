@@ -1137,15 +1137,6 @@ def chat(payload=Body(...), customer_context=Depends(get_optional_customer_conte
             }
         )
 
-    if personal_dispute and customer_id and not similar_cases:
-        return {
-            "response": None,
-            "personal_dispute": True,
-            "needs_satisfaction_feedback": False,
-            "needs_transaction_selection": True,
-            "retrieval_used": False,
-        }
-
     reply = generate_reply(
         message=safe_message,
         language=language,
